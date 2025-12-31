@@ -1,28 +1,25 @@
-@"
-
-\# Project Copilot – Plus NG
-
-
+﻿# Project Copilot – Plus NG
 
 Starter repo for Project Copilot (MES Plus NG) with evidence-first ingestion and insights.
 
+## Folders
+
+- epo/ — source code (commit)
+- prod/ — local runtime (venv, local config) (no commit)
+
+## Quick start (dev)
+
+`powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dev.ps1
+`",
+",
 
 
-\## Folders
-
-\- `repo/` – source code (commit)
-
-\- `prod/` – local runtime (venv, local config) (no commit)
-
+`powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_prod.ps1
+`",
+",
 
 
-\## Config
-
-\- Copy `.env.example` -> `.env` (local only, not committed)
-
-\- Copy `config\\secrets.local.json.example` -> `config\\secrets.local.json` (local only, not committed)
-
-"@ | Set-Content -Encoding UTF8 README.md
-
-
-
+- Copy .env.example → .env (local only)
+- Copy config\secrets.local.json.example → config\secrets.local.json (local only)
