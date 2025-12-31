@@ -1,14 +1,12 @@
 ﻿$ErrorActionPreference = "Stop"
 
-# scripts/ -> repo root
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
+$prodRoot = Resolve-Path (Join-Path $repoRoot "..\prod")
+$pythonProd = Join-Path $prodRoot "venv\Scripts\python.exe"
+if (!(Test-Path $pythonProd)) { throw "PROD python not found: $pythonProd" }
+
 $env:PYTHONPATH = $repoRoot
 
-$prodRoot = Resolve-Path (Join-Path $repoRoot "..\prod")
-$py = Join-Path $prodRoot "venv\Scripts\python.exe"
-$cfg = Join-Path $prodRoot "config\config.yaml"
-$cli = Join-Path $repoRoot "app\db\cli.py"
-
-& $py $cli --config $cfg
+& $pythonProd -m app.db.cli --config (Join-Path $prodRoot "config\config.yaml")
