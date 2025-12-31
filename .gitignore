@@ -220,3 +220,7 @@ data/
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- DEV runtime (DO NOT COMMIT) ---
+.venv/
+dev_data/

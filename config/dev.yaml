@@ -1,0 +1,7 @@
+﻿env: dev
+
+paths:
+  db_path: dev_data/db/project_copilot.dev.db
+  ingest_dir: dev_data/ingest
+  processed_dir: dev_data/processed
+  logs_dir: dev_data/logs
