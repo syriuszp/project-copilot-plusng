@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "project-copilot-plusng"
-version = "0.0.0"
+version = "0.0.1"
 description = "Project Copilot Starter Kit – Plus NG"
 requires-python = ">=3.12"
 dependencies = []
@@ -15,3 +15,4 @@ package-dir = {"" = "."}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
