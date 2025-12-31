@@ -213,6 +213,7 @@ prod/
 releases/
 logs/
 data/
+db/
 *.log
 
 # OS / IDE
@@ -224,3 +225,14 @@ Thumbs.db
 # --- DEV runtime (DO NOT COMMIT) ---
 .venv/
 dev_data/
+
+# secrets
+.env
+config/secrets.local.json
+*.local.json
+
+# python build artifacts
+dist/
+build/
+*.egg-info/
+__pycache__/
