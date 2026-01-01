@@ -2,20 +2,47 @@
 
 on:
   push:
+    branches: ["main"]
   pull_request:
 
 jobs:
-  tests:
+  tests-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install deps
+
+      - name: Install project + test deps
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -e .
+          python -m pip install pytest
+
       - name: Run tests
         run: |
           pytest -q
+
+  smoke-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv + install project
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -e .
+          .\.venv\Scripts\python.exe -m pip install pytest
+
+      - name: Run smoke test
+        shell: pwsh
+        run: |
+          .\scripts\smoke_test.ps1
