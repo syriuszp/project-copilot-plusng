@@ -1,2 +1,4 @@
 ﻿pytest>=8.0.0
 requests>=2.32.0
+streamlit>=1.32.0
+PyYAML>=6.0.1
