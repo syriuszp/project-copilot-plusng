@@ -1,7 +1,6 @@
 
 import os
 import hashlib
-import streamlit as st
 from pathlib import Path
 from typing import List, Optional
 from app.models.artifacts import Artifact, ArtifactDetails, PreviewResult
@@ -12,11 +11,9 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".log", ".yaml", ".yml", ".py", ".csv"}
 PDF_EXTENSIONS = {".pdf"}
 
-@st.cache_data(ttl=5)
 def list_artifacts(ingest_dir: str, filter_ext: Optional[str] = None, search_term: Optional[str] = None) -> List[Artifact]:
     """
     Lists artifacts in the ingestion directory with optional filtering and search.
-    Cached for performance (TTL 5s).
     """
     artifacts = []
     
@@ -54,20 +51,23 @@ def list_artifacts(ingest_dir: str, filter_ext: Optional[str] = None, search_ter
     artifacts.sort(key=lambda x: (-x.mtime, x.name))
     return artifacts
 
-def get_artifact_details(path: str) -> ArtifactDetails:
+def get_artifact_details(path: str, compute_hash: bool = False) -> ArtifactDetails:
     """
-    Retrieves detailed metadata for an artifact, including lazy hash calculation.
+    Retrieves detailed metadata for an artifact.
+    Hash calculation is optional/lazy via compute_hash=True.
     """
     try:
         path_obj = Path(path)
         stats = path_obj.stat()
         
-        # Lazy hash calculation (read first 64KB for speed or full? Requirement implies secure hash)
-        # For small files full hash is fine. For now read full but efficient chunking.
-        sha256_hash = hashlib.sha256()
-        with open(path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
+        file_hash = None
+        if compute_hash:
+            # Lazy hash calculation
+            sha256_hash = hashlib.sha256()
+            with open(path, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            file_hash = sha256_hash.hexdigest()
         
         return ArtifactDetails(
             name=path_obj.name,
@@ -75,7 +75,7 @@ def get_artifact_details(path: str) -> ArtifactDetails:
             size=stats.st_size,
             mtime=stats.st_mtime,
             type=path_obj.suffix.lower(),
-            hash=sha256_hash.hexdigest()
+            hash=file_hash
         )
     except Exception as e:
         # Fallback if file vanishes or perm error

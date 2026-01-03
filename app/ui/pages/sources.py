@@ -48,11 +48,20 @@ def render(app_state: AppState):
     # --- Main Area ---
     st.subheader("Ingestion Inbox")
     
+    # --- Wrapper for caching (since service can't import st) ---
+    @st.cache_data(ttl=5)
+    def cached_list_artifacts(dir_path, f_ext, search):
+        return sources_service.list_artifacts(dir_path, f_ext, search)
+    
     # 1. Fetch Data
-    artifacts = sources_service.list_artifacts(ingest_dir, filter_ext, search_term)
+    artifacts = cached_list_artifacts(ingest_dir, filter_ext, search_term)
     
     if not artifacts:
-        st.info("No artifacts found matching criteria.")
+        # P2: Conditional info
+        if filter_ext != "all" or search_term:
+            st.info("No artifacts found matching criteria.")
+        else:
+             st.info("No artifacts ingested yet.")
         return
 
     # 2. Layout: List (Left) | Detail/Preview (Right)
@@ -87,13 +96,26 @@ def render(app_state: AppState):
         # Let's iterate and show simplified items with a "View" button.
         
         # Scrollable container for list
-        with st.container(height=600):
-            for art in artifacts:
+        # P0: Fix st.container(height=...) -> Use simple container + explicit CSS if needed or just container
+        # Note: height param in st.container was introduced in recent Streamlit versions. 
+        # Requirement says it crashes, so assuming older Streamlit or user has issue with it.
+        # We will use standard container without height.
+        with st.container():
+            import hashlib
+            for i, art in enumerate(artifacts):
                 # Card-like row
                 c1, c2 = st.columns([3, 1])
                 c1.markdown(f"**{art.name}**  \n<span style='color:grey; font-size:0.8em'>{art.type} | {art.size/1024:.1f} KB</span>", unsafe_allow_html=True)
-                if c2.button("View", key=f"btn_{art.path}"):
+                
+                # P1: Stable Key
+                # Using index i is stable enough if list is sorted same way. 
+                # Or hash of path. 
+                safe_key = hashlib.md5(art.path.encode('utf-8')).hexdigest()
+                
+                if c2.button("View", key=f"btn_{safe_key}"):
                     st.session_state["selected_artifact_path"] = art.path
+                
+                st.divider()
 
         # Check selection
         selected_path = st.session_state.get("selected_artifact_path")
@@ -104,25 +126,48 @@ def render(app_state: AppState):
     # --- Right: Detail & Preview ---
     with col_detail:
         if selected_artifact:
-            # Fetch Details (Lazy)
-            details = sources_service.get_artifact_details(selected_artifact.path)
-            
-            st.markdown(f"### {details.name}")
+            st.markdown(f"### {selected_artifact.name}")
             
             # Metadata Tab / Preview Tab
             tab_preview, tab_meta = st.tabs(["Preview", "Metadata"])
             
             with tab_meta:
-                 # Reuse DetailPanel logic or custom
+                 # Initial details (without hash)
+                 # P1: Lazy hash logic
+                 # We don't fetch full details immediately if cache/calc is heavy?
+                 # Actually verify if we want to re-fetch or use logic.
+                 # Let's check session state for calculated hash or create compute button.
+                 
+                 # Helper to manage hash state for this artifact
+                 hash_key = f"hash_{selected_artifact.path}"
+                 current_hash = st.session_state.get(hash_key)
+                 
+                 details = sources_service.get_artifact_details(
+                     selected_artifact.path, 
+                     compute_hash=False # Initial fetch: fast, no hash
+                 )
+                 
                  meta_dict = {
                      "Path": details.path,
                      "Size": f"{details.size} bytes",
                      "Modified": datetime.datetime.fromtimestamp(details.mtime).isoformat(),
                      "Type": details.type,
-                     "SHA256": details.hash or "Calculating..." 
                  }
+                 
+                 if current_hash:
+                     meta_dict["SHA256"] = current_hash
+                 else:
+                     meta_dict["SHA256"] = "Not calculated"
+                     
                  st.json(meta_dict)
                  
+                 if not current_hash:
+                     if st.button("Compute Hash"):
+                         # Re-fetch with hash
+                         d_with_hash = sources_service.get_artifact_details(selected_artifact.path, compute_hash=True)
+                         st.session_state[hash_key] = d_with_hash.hash
+                         st.rerun()
+
                  # Windows Open Folder
                  if os.name == 'nt':
                      if st.button("Open Folder"):
@@ -132,7 +177,7 @@ def render(app_state: AppState):
                              st.error(f"Cannot open folder: {e}")
 
             with tab_preview:
-                preview = sources_service.preview_artifact(details.path)
+                preview = sources_service.preview_artifact(selected_artifact.path)
                 
                 if preview.type == "text":
                     st.code(preview.content, language=None) # Auto-detect or plain

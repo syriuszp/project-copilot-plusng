@@ -35,7 +35,7 @@ def test_list_artifacts_search(mock_ingest_dir):
 
 def test_get_artifact_details(mock_ingest_dir):
     path = os.path.join(mock_ingest_dir, "doc.txt")
-    details = sources_service.get_artifact_details(path)
+    details = sources_service.get_artifact_details(path, compute_hash=True)
     
     assert details.name == "doc.txt"
     assert details.size > 0
