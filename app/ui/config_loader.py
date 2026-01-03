@@ -18,44 +18,78 @@ def load_config() -> Dict[str, Any]:
         "data": {}
     }
 
-    project_root = Path(__file__).parent.parent.parent
-    config_dir = project_root / "config"
+    # --- 1. Read Overrides from ENV ---
+    env_override_file = os.environ.get("PROJECT_COPILOT_CONFIG_FILE")
+    env_override_dir = os.environ.get("PROJECT_COPILOT_CONFIG_DIR")
     
-    # Determine config file based on ENV
-    env = config_status["env"]
-    config_file = config_dir / f"{env.lower()}.yaml"
-    general_file = config_dir / "general.yaml"
+    # Priority for ENV: ENV var > default detection
+    # get_env() already respects PROJECT_COPILOT_ENV, so we just use it.
+    env = config_status["env"] # This calls get_env() which checks PROJECT_COPILOT_ENV
 
-    # Default to general if env-specific doesn't exist, but usually we load general and override
-    # For now, minimal implementation to satisfy requirements
-    
+    # --- 2. Determine Config Directory and Files ---
+    if env_override_file:
+        # CASE A: Explicit Config File
+        config_path = Path(env_override_file)
+        config_dir = config_path.parent
+        files_to_load = [config_path]
+        config_status["config_path"] = str(config_path)
+    elif env_override_dir:
+        # CASE B: Explicit Config Directory
+        config_dir = Path(env_override_dir)
+        files_to_load = [
+            config_dir / "general.yaml",
+            config_dir / f"{env.lower()}.yaml"
+        ]
+    else:
+        # CASE C: Default Repo Structure (site-packages or dev repo)
+        project_root = Path(__file__).parent.parent.parent
+        config_dir = project_root / "config"
+        files_to_load = [
+            config_dir / "general.yaml",
+            config_dir / f"{env.lower()}.yaml"
+        ]
+
+    # --- 3. Load Configs ---
     loaded_config = {}
+    files_found = 0
     
     try:
-        if general_file.exists():
-             with open(general_file, "r", encoding="utf-8") as f:
-                loaded_config.update(yaml.safe_load(f) or {})
+        for file_path in files_to_load:
+            if file_path.exists():
+                files_found += 1
+                # Track the last successfully loaded specific file as the main "config_path"
+                # (unless we are in single-file override mode, where it's already set)
+                if not env_override_file:
+                     # For dir mode, we might note specific env config as priority, or general if only general exists
+                     config_status["config_path"] = str(file_path)
 
-        if config_file.exists():
-            config_status["config_path"] = str(config_file)
-            with open(config_file, "r", encoding="utf-8") as f:
-                loaded_config.update(yaml.safe_load(f) or {})
-        elif general_file.exists():
-             config_status["config_path"] = str(general_file)
-        else:
-            config_status["status"] = "ERROR"
-            config_status["error"] = f"No config file found in {config_dir}"
-
-        config_status["data"] = loaded_config
+                with open(file_path, "r", encoding="utf-8") as f:
+                    loaded_config.update(yaml.safe_load(f) or {})
         
-        # Extract DB path if available (common pattern)
-        # Assuming typical structure, adjust if needed based on actual yaml content
-        if "database" in loaded_config and "path" in loaded_config["database"]:
-             config_status["db_path"] = loaded_config["database"]["path"]
-        elif "paths" in loaded_config and "db_path" in loaded_config["paths"]:
-             config_status["db_path"] = loaded_config["paths"]["db_path"]
-        elif "db_path" in loaded_config:
-             config_status["db_path"] = loaded_config["db_path"]
+        if files_found == 0:
+            config_status["status"] = "ERROR"
+            config_status["error"] = f"No config files found in {config_dir} (tried: {[str(f) for f in files_to_load]})"
+        else:
+            config_status["data"] = loaded_config
+            
+            # --- 4. Resolve DB Path ---
+            raw_db_path = None
+            if "database" in loaded_config and "path" in loaded_config["database"]:
+                 raw_db_path = loaded_config["database"]["path"]
+            elif "paths" in loaded_config and "db_path" in loaded_config["paths"]:
+                 raw_db_path = loaded_config["paths"]["db_path"]
+            elif "db_path" in loaded_config:
+                 raw_db_path = loaded_config["db_path"]
+            
+            if raw_db_path:
+                # If relative, resolve against config_dir
+                db_path_obj = Path(raw_db_path)
+                if not db_path_obj.is_absolute():
+                    config_status["db_path"] = str(config_dir / raw_db_path)
+                else:
+                    config_status["db_path"] = str(db_path_obj)
+            else:
+                 config_status["db_path"] = None
 
     except Exception as e:
         config_status["status"] = "ERROR"
