@@ -27,12 +27,14 @@ def load_config() -> Dict[str, Any]:
     env = config_status["env"] # This calls get_env() which checks PROJECT_COPILOT_ENV
 
     # --- 2. Determine Config Directory and Files ---
+    # --- 2. Determine Config Directory and Files ---
     if env_override_file:
         # CASE A: Explicit Config File
         config_path = Path(env_override_file)
         config_dir = config_path.parent
         files_to_load = [config_path]
         config_status["config_path"] = str(config_path)
+        config_status["source"] = "ENV_FILE (PROJECT_COPILOT_CONFIG_FILE)"
     elif env_override_dir:
         # CASE B: Explicit Config Directory
         config_dir = Path(env_override_dir)
@@ -40,6 +42,7 @@ def load_config() -> Dict[str, Any]:
             config_dir / "general.yaml",
             config_dir / f"{env.lower()}.yaml"
         ]
+        config_status["source"] = "ENV_DIR (PROJECT_COPILOT_CONFIG_DIR)"
     else:
         # CASE C: Default Repo Structure (site-packages or dev repo)
         project_root = Path(__file__).parent.parent.parent
@@ -48,6 +51,7 @@ def load_config() -> Dict[str, Any]:
             config_dir / "general.yaml",
             config_dir / f"{env.lower()}.yaml"
         ]
+        config_status["source"] = "DEFAULT (repo/site-packages)"
 
     # --- 3. Load Configs ---
     loaded_config = {}
