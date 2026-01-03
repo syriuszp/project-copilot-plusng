@@ -27,7 +27,6 @@ def load_config() -> Dict[str, Any]:
     env = config_status["env"] # This calls get_env() which checks PROJECT_COPILOT_ENV
 
     # --- 2. Determine Config Directory and Files ---
-    # --- 2. Determine Config Directory and Files ---
     if env_override_file:
         # CASE A: Explicit Config File
         config_path = Path(env_override_file)
