@@ -97,64 +97,73 @@ class ArtifactsRepo:
                     VALUES (?, ?, ?, ?)
                 """, (filename, path, text, artifact_id))
 
-    def search_artifacts(self, query: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def search_artifacts(self, query: str, limit: int = 20, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         filters = filters or {}
         results = []
         
         with self._get_conn() as conn:
             conn.row_factory = sqlite3.Row
             
-            # Base query
-            sql = """
+            # Base query structure for LIKE fallback if FTS not used or initial
+            sql_select = """
                 SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len, 
-                       substr(t.text, 1, 400) as snippet -- Default snippet
+                       substr(t.text, 1, 400) as snippet
                 FROM artifacts a
                 LEFT JOIN artifact_text t ON a.id = t.artifact_id
-                WHERE 1=1
             """
+            
             params = []
+            where_clauses = ["1=1"]
             
             # Filters
             if filters.get('ext'):
-                sql += " AND a.ext = ?"
+                where_clauses.append("a.ext = ?")
                 params.append(filters['ext'])
             if filters.get('status'):
-                sql += " AND a.ingest_status = ?"
+                where_clauses.append("a.ingest_status = ?")
                 params.append(filters['status'])
                 
-            # Search
-            if query:
-                if self._fts_enabled:
-                    # FTS Search
-                    # Join with FTS table
-                    # Note: snippet function is available in FTS5
-                    # We need to intersect FTS results with filters on main table.
-                    # Rework query:
-                    sql = """
-                        SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
-                               snippet(artifact_fts, 2, '**', '**', '...', 64) as snippet
-                        FROM artifacts a
-                        JOIN artifact_fts f ON a.id = f.ref_id
-                        LEFT JOIN artifact_text t ON a.id = t.artifact_id
-                        WHERE artifact_fts MATCH ?
-                    """
-                    
-                    params = [query] + params # Prepend query param
-                    
-                    if filters.get('ext'):
-                        sql += " AND a.ext = ?"
-                        params.append(filters['ext'])
-                    if filters.get('status'):
-                        sql += " AND a.ingest_status = ?"
-                        params.append(filters['status'])
-                        
-                else:
-                    # LIKE Fallback
-                    # Search in filename, path, and text
-                    sql += " AND (a.filename LIKE ? OR a.path LIKE ? OR t.text LIKE ?)"
-                    p = f"%{query}%"
-                    params.extend([p, p, p])
-                    
+            # Search Logic
+            if query and self._fts_enabled:
+                # FTS Search
+                # Join with FTS table
+                sql = """
+                    SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
+                           snippet(artifact_fts, 2, '**', '**', '...', 64) as snippet
+                    FROM artifacts a
+                    JOIN artifact_fts f ON a.id = f.ref_id
+                    LEFT JOIN artifact_text t ON a.id = t.artifact_id
+                    WHERE artifact_fts MATCH ?
+                """
+                # Re-add filters to WHERE
+                for clause in where_clauses[1:]: # skip 1=1
+                    sql += f" AND {clause}"
+                
+                # Deterministic Sort: FTS Rank
+                sql += " ORDER BY rank"
+                
+                # Params: query + filter params
+                params = [query] + params
+                
+            elif query:
+                # LIKE Fallback
+                sql = sql_select + " WHERE " + " AND ".join(where_clauses)
+                sql += " AND (a.filename LIKE ? OR a.path LIKE ? OR t.text LIKE ?)"
+                p = f"%{query}%"
+                params.extend([p, p, p])
+                
+                # Deterministic Sort: Snippet length (as proxy for relevance/conciseness) + ID
+                # Using length of snippet (which is substr(text, 1, 400)) acts as simple determinism along with ID
+                sql += " ORDER BY length(snippet) ASC, a.id ASC"
+                
+            else:
+                # No query, just filters
+                sql = sql_select + " WHERE " + " AND ".join(where_clauses)
+                sql += " ORDER BY a.id DESC"
+
+            # Apply Limit
+            sql += f" LIMIT {limit}"
+
             cursor = conn.execute(sql, params)
             rows = cursor.fetchall()
             for r in rows:
