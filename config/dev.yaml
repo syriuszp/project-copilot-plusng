@@ -5,3 +5,6 @@ paths:
   ingest_dir: dev_data/ingest
   processed_dir: dev_data/processed
   logs_dir: dev_data/logs
+
+features:
+  search_enabled: true
