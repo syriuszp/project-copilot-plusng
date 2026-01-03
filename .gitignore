@@ -236,3 +236,9 @@ dist/
 build/
 *.egg-info/
 __pycache__/
+test_out*.txt
+*.tmp
+*.log
+.pytest_cache/
+.streamlit/
+.venv/
