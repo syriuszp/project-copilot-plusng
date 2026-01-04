@@ -4,7 +4,7 @@ from .base import BaseExtractor
 from .plain import PlainTextExtractor
 from .pdf import PdfExtractor
 from .docx import DocxExtractor
-from app.core.utils.binaries import BinaryChecker
+from app.core.external_tools import ExternalTools
 
 class ExtractorRegistry:
     def __init__(self, config: Optional[dict] = None):
@@ -21,7 +21,7 @@ class ExtractorRegistry:
         self.features = self.config.get("extraction", {}) if "extraction" in self.config else self.config # Support testing direct feature dict
         
         # Binary Checks
-        self.binaries = BinaryChecker.check_binaries(self.config)
+        self.binaries = ExternalTools.check_binaries(self.config)
         self.config["binaries"] = self.binaries # Propagate to extractors if needed
         
         # Register defaults

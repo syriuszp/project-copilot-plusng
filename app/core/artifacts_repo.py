@@ -49,7 +49,7 @@ class ArtifactsRepo:
         """
         with self._get_conn() as conn:
             cur = conn.cursor()
-            # 001/002 Unified Schema: PK is artifact_id. Unique is path.
+            # 003 Strict Schema: PK is 'id'. Unique is 'path'.
             cur.execute("""
                 INSERT INTO artifacts (path, filename, ext, size_bytes, modified_at, sha256, ingest_status, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'new', CURRENT_TIMESTAMP)
@@ -58,7 +58,7 @@ class ArtifactsRepo:
                     modified_at=excluded.modified_at,
                     sha256=COALESCE(excluded.sha256, artifacts.sha256),
                     updated_at=CURRENT_TIMESTAMP
-                RETURNING artifact_id;
+                RETURNING id;
             """, (
                 meta['path'], meta['filename'], meta['ext'], 
                 meta.get('size_bytes'), meta.get('modified_at'), meta.get('sha256')
@@ -107,10 +107,10 @@ class ArtifactsRepo:
             
             # Base query structure for LIKE fallback if FTS not used or initial
             sql_select = """
-                SELECT a.artifact_id as id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len, 
+                SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len, 
                        substr(t.text, 1, 400) as snippet
                 FROM artifacts a
-                LEFT JOIN artifact_text t ON a.artifact_id = t.artifact_id
+                LEFT JOIN artifact_text t ON a.id = t.artifact_id
             """
             
             params = []

@@ -56,3 +56,7 @@ def test_fresh_003_install(tmp_path):
         print(indices)
         has_unique = any(i[2] == 1 for i in indices)
         assert has_unique, "Fresh install must have UNIQUE index"
+        
+        # Verify PK is id
+        pk_info = [c for c in conn.execute("PRAGMA table_info(artifacts)") if c[5] == 1]
+        assert pk_info[0][1] == "id"

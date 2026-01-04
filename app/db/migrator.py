@@ -63,7 +63,7 @@ def ensure_schema(conn: sqlite3.Connection):
         # Fallback create if SQL migration failed or wasn't applied
         conn.execute("""
             CREATE TABLE IF NOT EXISTS artifacts (
-                artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 path TEXT NOT NULL,
                 filename TEXT,
                 ext TEXT,
@@ -108,10 +108,10 @@ def ensure_schema(conn: sqlite3.Connection):
             # A. Rename
             conn.execute("ALTER TABLE artifacts RENAME TO artifacts_backup_legacy")
             
-            # B. Create Strict New
+            # B. Create Strict New (PRIMARY KEY is 'id')
             conn.execute("""
                 CREATE TABLE artifacts (
-                    artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     path TEXT NOT NULL,
                     filename TEXT,
                     ext TEXT,
@@ -135,39 +135,34 @@ def ensure_schema(conn: sqlite3.Connection):
             src_hash = "sha256" if "sha256" in b_cols else "content_hash"
             src_time = "created_at"
             
-            # D. Migrate Data (GROUP BY path to resolve uniqueness violations if legacy had dupes)
-            # We pick the LATEST (max PK) or any logic for dupes? Max PK usually implies most recent ingest attempt?
-            # Or just MAX(created_at).
-            # Let's use MAX(pk) to keep latest.
+            # D. Migrate Data
+            logger.info("Migrating data to strict schema (id PK)...")
             
-            logger.info("Migrating data to strict schema...")
-            # We use an Aggregation to force Uniqueness on path
-            
-            # Note on source_uri: if legacy table doesn't have source_uri, check 'source'.
-            # Just fallback to what we found.
+            # Fallback for path
             if src_path not in b_cols:
-                # Critical fallback
                 if "source" in b_cols: src_path = "source"
             
+            # We map legacy PK to new 'id' if possible, or let AUTOINCREMENT handle it?
+            # User wants: "Naprawcie klucz główny: artifacts.id".
+            # If we preserve IDs, we should select src_pk as id.
+            
             migration_sql = f"""
-                INSERT INTO artifacts (artifact_id, path, sha256, created_at, ingest_status, filename, ext, size_bytes, modified_at, error, updated_at)
+                INSERT INTO artifacts (id, path, sha256, created_at, ingest_status, filename, ext, size_bytes, modified_at, error, updated_at)
                 SELECT 
                     MAX({src_pk}) as aid, 
                     {src_path} as p, 
                     MAX({src_hash}), 
                     MAX({src_time}), 
-                    'new', -- Reset status to force re-index/check on strict schema or keep 'failed' if NULL
+                    'new', 
                     MAX(filename), MAX(ext), MAX(size_bytes), MAX(modified_at), MAX(error), MAX(updated_at)
                 FROM artifacts_backup_legacy
                 WHERE {src_path} IS NOT NULL
                 GROUP BY {src_path}
             """
             
-            # Note: columns like filename, ext might not exist in VERY old legacy (001).
-            # If they don't exist in backup, we can't select them.
-            # We must construct the SELECT based on availability.
+            # Construct dynamic select
             select_parts = [f"MAX({src_pk})", f"{src_path}", f"MAX({src_hash})", f"MAX({src_time})", "'new'"]
-            insert_cols = ["artifact_id", "path", "sha256", "created_at", "ingest_status"]
+            insert_cols = ["id", "path", "sha256", "created_at", "ingest_status"]
             
             if "filename" in b_cols: 
                 select_parts.append("MAX(filename)")
@@ -184,7 +179,6 @@ def ensure_schema(conn: sqlite3.Connection):
             if "error" in b_cols:
                 select_parts.append("MAX(error)")
                 insert_cols.append("error")
-             # updated_at might be missing
             if "updated_at" in b_cols:
                 select_parts.append("MAX(updated_at)")
                 insert_cols.append("updated_at")
@@ -200,7 +194,7 @@ def ensure_schema(conn: sqlite3.Connection):
             conn.execute(final_sql)
             conn.execute("DROP TABLE artifacts_backup_legacy")
             conn.execute("PRAGMA foreign_keys=ON")
-            logger.info("Strict Rebuild Complete.")
+            logger.info("Strict Rebuild Complete (id PK).")
             
         except Exception as e:
             conn.rollback()

@@ -125,7 +125,7 @@ class IndexingService:
                         
                         if is_dirty:
                              fs_meta["status"] = "DIRTY"
-                             fs_meta["id"] = db_rec.get('artifact_id', db_rec.get('id'))
+                             fs_meta["id"] = db_rec.get('id')
                              results.append(fs_meta)
                         else:
                              # Use DB status. 
@@ -151,7 +151,7 @@ class IndexingService:
                              else:
                                  fs_meta["status"] = status.upper()
 
-                             fs_meta["id"] = db_rec.get('artifact_id', db_rec.get('id'))
+                             fs_meta["id"] = db_rec.get('id')
                              results.append(fs_meta)
                              
                 except Exception as e:

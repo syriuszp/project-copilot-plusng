@@ -25,7 +25,7 @@ def test_scan_workspace_status_logic(tmp_path):
         "size_bytes": stat2.st_size,
         "modified_at": stat2.st_mtime, # exact match
         "ingest_status": "indexed",
-        "artifact_id": 100
+        "id": 100
     }
     
     mock_repo.search_artifacts.return_value = [db_record_f2]
@@ -61,7 +61,7 @@ def test_scan_workspace_failed_record(tmp_path):
         "size_bytes": stat.st_size,
         "modified_at": stat.st_mtime,
         "ingest_status": "failed",
-        "artifact_id": 101
+        "id": 101
     }
     
     mock_repo = MagicMock()
