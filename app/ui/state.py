@@ -2,7 +2,7 @@
 import streamlit as st
 from typing import Dict, Any
 from app.ui.config_loader import load_config
-from app.db.database import init_or_upgrade_db
+from app.db.migrator import init_or_upgrade_db
 from pathlib import Path
 
 class AppState:
