@@ -4,6 +4,7 @@ import pytest
 from pathlib import Path
 from app.db.migrator import init_or_upgrade_db
 
+@pytest.mark.migration
 def test_upgrade_from_v020_like(tmp_path):
     """
     Simulates upgrade from a v0.2.0-like database:

@@ -98,7 +98,7 @@ class ArtifactsRepo:
                     VALUES (?, ?, ?, ?)
                 """, (filename, path, text, artifact_id))
 
-    def search_artifacts(self, query: str, limit: int = 20, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def search_artifacts(self, query: str, limit: int = 20, offset: int = 0, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         filters = filters or {}
         results = []
         
@@ -129,11 +129,11 @@ class ArtifactsRepo:
                 # FTS Search
                 # Join with FTS table
                 sql = """
-                    SELECT a.artifact_id as id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
+                    SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
                            snippet(artifact_fts, 2, '**', '**', '...', 64) as snippet
                     FROM artifacts a
-                    JOIN artifact_fts f ON a.artifact_id = f.ref_id
-                    LEFT JOIN artifact_text t ON a.artifact_id = t.artifact_id
+                    JOIN artifact_fts f ON a.id = f.ref_id
+                    LEFT JOIN artifact_text t ON a.id = t.artifact_id
                     WHERE artifact_fts MATCH ?
                 """
                 # Re-add filters to WHERE
@@ -154,15 +154,15 @@ class ArtifactsRepo:
                 params.extend([p, p, p])
                 
                 # Deterministic Sort: Snippet length (as proxy for relevance/conciseness) + ID
-                sql += " ORDER BY length(snippet) ASC, a.artifact_id ASC"
+                sql += " ORDER BY length(snippet) ASC, a.id ASC"
                 
             else:
                 # No query, just filters
                 sql = sql_select + " WHERE " + " AND ".join(where_clauses)
-                sql += " ORDER BY a.artifact_id DESC"
+                sql += " ORDER BY a.id DESC"
 
-            # Apply Limit
-            sql += f" LIMIT {limit}"
+            # Apply Limit and Offset
+            sql += f" LIMIT {limit} OFFSET {offset}"
 
             cursor = conn.execute(sql, params)
             rows = cursor.fetchall()

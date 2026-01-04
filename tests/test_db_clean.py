@@ -30,7 +30,7 @@ def test_clean_rebuild(tmp_path):
         cols = {r[1].lower() for r in conn.execute("PRAGMA table_info(artifacts)")}
         print(f"Final Cols: {cols}")
         
-        assert "artifact_id" in cols
+        assert "id" in cols
         assert "path" in cols
         assert "source_uri" not in cols
         assert "source_type" not in cols

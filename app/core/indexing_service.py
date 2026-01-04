@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class IndexingService:
     def __init__(self, repo: ArtifactsRepo, config: Dict[str, Any] = None):
         self.repo = repo
+        self.config = config or {}
         self.registry = ExtractorRegistry(config)
 
     def index_file(self, path: str) -> str:
@@ -51,20 +52,31 @@ class IndexingService:
                 return "not_extractable"
                 
             try:
-                text = extractor.extract(str(p))
-                if text:
+                result = extractor.extract(str(p))
+                
+                if result.content:
                     self.repo.save_extracted_text(
                         artifact_id, 
-                        text, 
+                        result.content, 
                         extractor.__class__.__name__, 
-                        len(text),
+                        len(result.content),
                         meta["filename"],
                         meta["path"]
                     )
                     return "indexed"
                 else:
-                    self.repo.set_index_status(artifact_id, "not_extractable")
-                    return "not_extractable"
+                    # If content is None, it might be failed or not_extractable
+                    # Check error
+                    if result.error:
+                        self.repo.set_index_status(artifact_id, "failed", result.error)
+                        return "failed"
+                    else:
+                        self.repo.set_index_status(artifact_id, "not_extractable")
+                        return "not_extractable"
+            except Exception as e:
+                logger.error(f"Extraction exception for {path}: {e}")
+                self.repo.set_index_status(artifact_id, "failed", str(e))
+                return "failed"
             except Exception as e:
                 logger.error(f"Extraction failed for {path}: {e}")
                 self.repo.set_index_status(artifact_id, "failed", str(e))
@@ -91,9 +103,34 @@ class IndexingService:
             return results
 
         # 1. Get DB State
-        # Fetch all paths and timestamps/sizes
-        # We use limit=10000 for MVP scalability
-        db_artifacts = {a['path']: a for a in self.repo.search_artifacts("", limit=10000)}
+        # Fetch all paths and timestamps/sizes in chunks
+        chunk_size = self.config.get("indexing", {}).get("db_path_chunk_size", 500)
+        # Safeguard: max(50, min(chunk_size, 1000))
+        if not isinstance(chunk_size, int): chunk_size = 500
+        chunk_size = max(50, min(chunk_size, 1000))
+        
+        db_artifacts = {}
+        offset = 0
+        total_fetched = 0
+        
+        logger.debug(f"Starting Index scan with chunk_size={chunk_size}")
+
+        while True:
+            batch = self.repo.search_artifacts("", limit=chunk_size, offset=offset)
+            if not batch:
+                break
+            
+            for a in batch:
+                db_artifacts[a['path']] = a
+            
+            count = len(batch)
+            total_fetched += count
+            offset += count
+            
+            if count < chunk_size: # End of records
+                break
+
+        logger.debug(f"Index scan: DB fetch complete. {total_fetched} records loaded.")
 
         # 2. Walk FS
         for entry in os.scandir(ingest_dir):

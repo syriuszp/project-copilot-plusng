@@ -38,6 +38,7 @@ def test_registry_defaults():
     assert reg.get(".pdf")
     assert reg.get(".png")
 
+@pytest.mark.extraction
 def test_docx_extractor(tmp_path, mock_docx):
     # Verify Docx Logic
     f = tmp_path / "test.docx"
@@ -45,8 +46,9 @@ def test_docx_extractor(tmp_path, mock_docx):
     
     ext = DocxExtractor({})
     res = ext.extract(str(f))
-    assert res == "Docx Content"
+    assert res.content == "Docx Content"
 
+@pytest.mark.extraction
 def test_pdf_extractor_text(tmp_path, mock_pdf_reader):
     # Verify PDF text mode
     f = tmp_path / "test.pdf"
@@ -54,8 +56,9 @@ def test_pdf_extractor_text(tmp_path, mock_pdf_reader):
     
     ext = PdfExtractor({"features": {"extraction": {"ocr": False}}}) # Ensure no OCR fallback
     res = ext.extract(str(f))
-    assert res == "Pdf Page Content"
+    assert res.content == "Pdf Page Content"
 
+@pytest.mark.extraction
 def test_pdf_extractor_ocr_fallback(tmp_path, mock_pdf_reader):
     # Test fallback logic trigger (if pages empty)
     f = tmp_path / "scan.pdf"
@@ -76,13 +79,16 @@ def test_pdf_extractor_ocr_fallback(tmp_path, mock_pdf_reader):
     
     ext = PdfExtractor(config)
     
-    # Should return None (NOT_EXTRACTABLE) because OCR needed but binaries missing
+    # Should return None content (NOT_EXTRACTABLE) because OCR needed but binaries missing
     res = ext.extract(str(f))
-    assert res is None
+    assert res.content is None
+    # We can check metadata source too?
+    # assert res.metadata["source"] == "ocr_failed" or "no_binary"
 
+@pytest.mark.extraction
 def test_image_extractor_no_ocr():
     from app.core.extractors.image import ImageExtractor
     config = {"features": {"extraction": {"ocr": False}}}
     ext = ImageExtractor(config)
     res = ext.extract("foo.png")
-    assert res is None # NOT_EXTRACTABLE
+    assert res.content is None # NOT_EXTRACTABLE
