@@ -71,7 +71,7 @@ class ArtifactsRepo:
             conn.execute("""
                 UPDATE artifacts 
                 SET ingest_status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE artifact_id = ?
+                WHERE id = ?
             """, (status, error, artifact_id))
 
     def save_extracted_text(self, artifact_id: int, text: str, extractor: str, chars: int, filename: str, path: str):
@@ -88,7 +88,7 @@ class ArtifactsRepo:
             """, (artifact_id, text, extractor, chars))
             
             # 2. Update status
-            conn.execute("UPDATE artifacts SET ingest_status='indexed', updated_at=CURRENT_TIMESTAMP WHERE artifact_id=?", (artifact_id,))
+            conn.execute("UPDATE artifacts SET ingest_status='indexed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (artifact_id,))
 
             # 3. Update FTS
             if self._fts_enabled:

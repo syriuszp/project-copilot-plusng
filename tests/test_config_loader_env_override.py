@@ -70,7 +70,7 @@ def test_config_file_override(clean_env, tmp_path):
     
     # DB path should be resolved relative to config dir (tmp_path)
     expected_db_path = str(tmp_path / "my_db.sqlite")
-    assert config["paths"]["db_path"] == expected_db_path
+    assert config["db_path"] == expected_db_path
 
 def test_config_dir_override(clean_env, tmp_path):
     """Test PROJECT_COPILOT_CONFIG_DIR override."""
@@ -118,4 +118,4 @@ def test_absolute_db_path_preserved(clean_env, tmp_path):
     os.environ["PROJECT_COPILOT_CONFIG_FILE"] = str(cfg_file)
     
     config = load_config()
-    assert config["paths"]["db_path"] == abs_db
+    assert config["db_path"] == abs_db

@@ -72,8 +72,14 @@ def test_upgrade_from_legacy_001(db_path, migrations_dir):
         assert "source_uri" not in cols 
         
         # Check Unique Index on Path
-        indexes = {r[1] for r in conn.execute("PRAGMA index_list(artifacts)")}
-        assert "ux_artifacts_path" in indexes, "Unique index on path missing"
+        has_unique_path = False
+        for idx in conn.execute("PRAGMA index_list(artifacts)"):
+            if idx[2] == 1: # Unique
+                cols = [c[2] for c in conn.execute(f"PRAGMA index_info({idx[1]})")]
+                if cols == ["path"]:
+                    has_unique_path = True
+                    break
+        assert has_unique_path, "Unique index on path missing"
         
         # Check Data Integrity
         # We didn't migrate source_uri to path automatically (unless we added that logic, which we skipped for P0 MVP of schema)
