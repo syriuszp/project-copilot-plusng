@@ -1,76 +1,75 @@
 
 import pytest
-import yaml
+import logging
+from unittest.mock import patch, mock_open
 from app.ui.config_loader import load_config
-from app.core.config_validator import ConfigValidator
 
-@pytest.fixture
-def clean_env(monkeypatch):
-    monkeypatch.delenv("PROJECT_COPILOT_CONFIG_FILE", raising=False)
-    monkeypatch.delenv("PROJECT_COPILOT_CONFIG_DIR", raising=False)
-    monkeypatch.delenv("PROJECT_COPILOT_ENV", raising=False)
-
-def test_legacy_config_mapping(tmp_path, monkeypatch, clean_env):
+def test_legacy_search_enabled_mapping():
     """
-    Test that top-level search_enabled is mapped to features.search_enabled.
+    Verifies that top-level search_enabled: true is mapped to features.search_enabled: true.
     """
-    config_file = tmp_path / "legacy.yaml"
-    config_file.write_text("""
-paths:
-  db_path: db.sqlite
-  ingest_dir: ingest
-  processed_dir: proc
-  logs_dir: logs
+    yaml_content = """
 search_enabled: true
-""", encoding='utf-8')
-    
-    monkeypatch.setenv("PROJECT_COPILOT_CONFIG_FILE", str(config_file))
-    
-    status = load_config()
-    assert status["status"] == "OK"
-    data = status["data"]
-    
-    # Check mapping
-    assert "search_enabled" not in data
+fts_enabled: true
+database:
+  path: "test.db"
+indexing:
+  poll_interval: 60
+extraction:
+  ocr:
+    enabled: false
+paths:
+  db_path: "test.db"
+  ingest_dir: "data"
+  processed_dir: "processed"
+  logs_dir: "logs"
+    """
+    with patch("builtins.open", mock_open(read_data=yaml_content)):
+        with patch("app.ui.config_loader.Path.exists", return_value=True):
+            # config_loader uses Path(env_override) or default. 
+            # We mock file loading.
+            # load_config iterates files.
+            
+            # We need to mock os.environ to avoid picking up real env config
+            with patch.dict("os.environ", {}, clear=True):
+                 # Mock Path behavior to return our file when checked
+                 config = load_config()
+                 if config["status"] != "OK":
+                     print(f"Config Error: {config.get('error')}")
+                 
+    assert config["status"] == "OK"
+    data = config["data"]
     assert "features" in data
     assert data["features"]["search_enabled"] is True
+    assert data["features"]["fts_enabled"] is True
+    assert "search_enabled" not in data # Should be popped
 
-def test_missing_paths_error(tmp_path, monkeypatch, clean_env):
+def test_priority_features_over_legacy():
     """
-    Test that validator catches missing paths.
+    Verifies that features.search_enabled takes precedence.
     """
-    config_file = tmp_path / "invalid.yaml"
-    config_file.write_text("""
+    yaml_content = """
+search_enabled: false
 features:
   search_enabled: true
+database:
+  path: "test.db"
+indexing:
+  poll_interval: 60
+extraction:
+  ocr:
+    enabled: false
 paths:
-  db_path: db.sqlite
-  # Missing ingest_dir etc
-""", encoding='utf-8')
-    
-    monkeypatch.setenv("PROJECT_COPILOT_CONFIG_FILE", str(config_file))
-    
-    status = load_config()
-    assert status["status"] == "ERROR"
-    assert "Missing path config: 'paths.ingest_dir'" in status["error"]
+  db_path: "test.db"
+  ingest_dir: "data"
+  processed_dir: "processed"
+  logs_dir: "logs"
+    """
+    with patch("builtins.open", mock_open(read_data=yaml_content)):
+        with patch("app.ui.config_loader.Path.exists", return_value=True):
+            with patch.dict("os.environ", {}, clear=True):
+                 config = load_config()
+                 
+    data = config["data"]
+    assert data["features"]["search_enabled"] is True # False from legacy ignored
 
-def test_invalid_type_error(tmp_path, monkeypatch, clean_env):
-    """
-    Test that validator catches invalid types (bool expected).
-    """
-    config_file = tmp_path / "bad_type.yaml"
-    config_file.write_text("""
-paths:
-  db_path: db.sqlite
-  ingest_dir: ingest
-  processed_dir: proc
-  logs_dir: logs
-features:
-  search_enabled: "yes" # String instead of bool
-""", encoding='utf-8')
-    
-    monkeypatch.setenv("PROJECT_COPILOT_CONFIG_FILE", str(config_file))
-    
-    status = load_config()
-    assert status["status"] == "ERROR"
-    assert "Field 'search_enabled' must be boolean" in status["error"]

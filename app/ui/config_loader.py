@@ -70,14 +70,29 @@ def load_config() -> Dict[str, Any]:
             config_status["status"] = "ERROR"
             config_status["error"] = f"No config files found in {config_dir} (tried: {[str(f) for f in files_to_load]})"
         else:
-            # --- 3b. Backward Compatibility (Hardening) ---
+            # --- 3b. Backward Compatibility (P0 Hardening) ---
+            # Map top-level 'search_enabled' to 'features.search_enabled'
+            # Prioritize existing features.search_enabled if present.
+            
             if "search_enabled" in loaded_config:
+                val = loaded_config.pop("search_enabled")
                 if "features" not in loaded_config:
                     loaded_config["features"] = {}
-                loaded_config["features"]["search_enabled"] = loaded_config.pop("search_enabled")
-                local_msg = "DEPRECATED: Top-level 'search_enabled' found. Mapped to 'features.search_enabled'. Please update config."
-                logger.warning(local_msg)
-                # Ensure we propagate this warning to UI if needed, but for now log is enough
+                
+                # Only map if not already defined in features
+                if "search_enabled" not in loaded_config["features"]:
+                     loaded_config["features"]["search_enabled"] = val
+                     logger.warning("DEPRECATED: Top-level 'search_enabled' found. Mapped to 'features.search_enabled'.")
+                else:
+                     logger.info("Ignoring top-level 'search_enabled' because 'features.search_enabled' is set.")
+        
+            # Same for fts_enabled
+            if "fts_enabled" in loaded_config:
+                val = loaded_config.pop("fts_enabled")
+                if "features" not in loaded_config:
+                     loaded_config["features"] = {}
+                if "fts_enabled" not in loaded_config["features"]:
+                     loaded_config["features"]["fts_enabled"] = val
 
             # --- 3c. Validation (Hardening) ---
             validation_errors = ConfigValidator.validate(loaded_config)

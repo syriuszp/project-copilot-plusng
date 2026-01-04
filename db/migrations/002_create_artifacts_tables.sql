@@ -1,28 +1,16 @@
 -- Migration: 002_create_artifacts_tables
 -- Created at: 2026-01-03
 
-CREATE TABLE IF NOT EXISTS artifacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    path TEXT UNIQUE NOT NULL,
-    filename TEXT NOT NULL,
-    ext TEXT NOT NULL,
-    size_bytes INTEGER,
-    modified_at TEXT,
-    sha256 TEXT,
-    ingest_status TEXT NOT NULL DEFAULT 'new', -- new | indexed | failed | not_extractable
-    error TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-
+-- Modified to rely on 001_initial for artifacts base table.
+-- Columns are added via migrator.py (Python-driven schema upgrade).
 
 CREATE TABLE IF NOT EXISTS artifact_text (
-    artifact_id INTEGER PRIMARY KEY REFERENCES artifacts(id) ON DELETE CASCADE,
+    artifact_id INTEGER PRIMARY KEY,
     text TEXT,
     extracted_at TEXT,
     extractor TEXT,
-    chars INTEGER
+    chars INTEGER,
+    FOREIGN KEY(artifact_id) REFERENCES artifacts(artifact_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS index_runs (

@@ -49,6 +49,7 @@ class ArtifactsRepo:
         """
         with self._get_conn() as conn:
             cur = conn.cursor()
+            # 001/002 Unified Schema: PK is artifact_id. Unique is path.
             cur.execute("""
                 INSERT INTO artifacts (path, filename, ext, size_bytes, modified_at, sha256, ingest_status, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'new', CURRENT_TIMESTAMP)
@@ -57,7 +58,7 @@ class ArtifactsRepo:
                     modified_at=excluded.modified_at,
                     sha256=COALESCE(excluded.sha256, artifacts.sha256),
                     updated_at=CURRENT_TIMESTAMP
-                RETURNING id;
+                RETURNING artifact_id;
             """, (
                 meta['path'], meta['filename'], meta['ext'], 
                 meta.get('size_bytes'), meta.get('modified_at'), meta.get('sha256')
@@ -70,12 +71,12 @@ class ArtifactsRepo:
             conn.execute("""
                 UPDATE artifacts 
                 SET ingest_status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                WHERE artifact_id = ?
             """, (status, error, artifact_id))
 
     def save_extracted_text(self, artifact_id: int, text: str, extractor: str, chars: int, filename: str, path: str):
         with self._get_conn() as conn:
-            # 1. Update artifact_text (fixed column name extracted_at)
+            # 1. Update artifact_text (Unified)
             conn.execute("""
                 INSERT INTO artifact_text (artifact_id, text, extracted_at, extractor, chars)
                 VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
@@ -87,7 +88,7 @@ class ArtifactsRepo:
             """, (artifact_id, text, extractor, chars))
             
             # 2. Update status
-            conn.execute("UPDATE artifacts SET ingest_status='indexed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (artifact_id,))
+            conn.execute("UPDATE artifacts SET ingest_status='indexed', updated_at=CURRENT_TIMESTAMP WHERE artifact_id=?", (artifact_id,))
 
             # 3. Update FTS
             if self._fts_enabled:
@@ -106,10 +107,10 @@ class ArtifactsRepo:
             
             # Base query structure for LIKE fallback if FTS not used or initial
             sql_select = """
-                SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len, 
+                SELECT a.artifact_id as id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len, 
                        substr(t.text, 1, 400) as snippet
                 FROM artifacts a
-                LEFT JOIN artifact_text t ON a.id = t.artifact_id
+                LEFT JOIN artifact_text t ON a.artifact_id = t.artifact_id
             """
             
             params = []
@@ -128,11 +129,11 @@ class ArtifactsRepo:
                 # FTS Search
                 # Join with FTS table
                 sql = """
-                    SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
+                    SELECT a.artifact_id as id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
                            snippet(artifact_fts, 2, '**', '**', '...', 64) as snippet
                     FROM artifacts a
-                    JOIN artifact_fts f ON a.id = f.ref_id
-                    LEFT JOIN artifact_text t ON a.id = t.artifact_id
+                    JOIN artifact_fts f ON a.artifact_id = f.ref_id
+                    LEFT JOIN artifact_text t ON a.artifact_id = t.artifact_id
                     WHERE artifact_fts MATCH ?
                 """
                 # Re-add filters to WHERE
@@ -153,13 +154,12 @@ class ArtifactsRepo:
                 params.extend([p, p, p])
                 
                 # Deterministic Sort: Snippet length (as proxy for relevance/conciseness) + ID
-                # Using length of snippet (which is substr(text, 1, 400)) acts as simple determinism along with ID
-                sql += " ORDER BY length(snippet) ASC, a.id ASC"
+                sql += " ORDER BY length(snippet) ASC, a.artifact_id ASC"
                 
             else:
                 # No query, just filters
                 sql = sql_select + " WHERE " + " AND ".join(where_clauses)
-                sql += " ORDER BY a.id DESC"
+                sql += " ORDER BY a.artifact_id DESC"
 
             # Apply Limit
             sql += f" LIMIT {limit}"
