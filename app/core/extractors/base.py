@@ -3,6 +3,9 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 class BaseExtractor(ABC):
+    def __init__(self, config: Optional[dict] = None):
+        self.config = config or {}
+
     @abstractmethod
     def extract(self, path: str) -> Optional[str]:
         """

@@ -5,25 +5,14 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 from app.core.artifacts_repo import ArtifactsRepo
-from app.core.extractors.plain import PlainTextExtractor
-from app.core.extractors.pdf import PdfExtractor
-from app.core.extractors.docx import DocxExtractor
+from app.core.extractors.registry import ExtractorRegistry
 
 logger = logging.getLogger(__name__)
 
 class IndexingService:
-    def __init__(self, repo: ArtifactsRepo):
+    def __init__(self, repo: ArtifactsRepo, config: Dict[str, Any] = None):
         self.repo = repo
-        self.extractors = {
-            ".txt": PlainTextExtractor(),
-            ".md": PlainTextExtractor(),
-            ".json": PlainTextExtractor(),
-            ".yaml": PlainTextExtractor(),
-            ".yml": PlainTextExtractor(),
-            ".py": PlainTextExtractor(),
-            ".pdf": PdfExtractor(),
-            ".docx": DocxExtractor()
-        }
+        self.registry = ExtractorRegistry(config)
 
     def index_file(self, path: str) -> str:
         """
@@ -55,7 +44,7 @@ class IndexingService:
             
             # 2. Extract Text
             ext = meta["ext"]
-            extractor = self.extractors.get(ext)
+            extractor = self.registry.get(ext)
             
             if not extractor:
                 self.repo.set_index_status(artifact_id, "not_extractable")
@@ -86,6 +75,80 @@ class IndexingService:
             # If we have artifact_id we can set status, else just log
             return "failed"
 
+
+    def scan_files(self, ingest_dir: str) -> List[Dict[str, Any]]:
+        """
+        Scans directory and compares with DB to determine status.
+        Returns list of file metadata including calculated 'status'.
+        Statuses: NEW, DIRTY, INDEXED, FAILED, NOT_EXTRACTABLE
+        """
+        results = []
+        if not os.path.exists(ingest_dir):
+            return results
+
+        # 1. Get DB State
+        # We need a method to get all artifacts or we fetch per file?
+        # Listing all is better for performance if N is small (<1000).
+        # Assuming ArtifactsRepo has list_all(). If not, we iterate files and specific query?
+        # Let's query DB for all paths in this dir? 
+        # For MVP, fetching all from artifacts table is acceptable.
+        # repo.search_artifacts doesn't give all raw data.
+        # We'll need repo method or use search_artifacts with limit=10000.
+        db_artifacts = {a['path']: a for a in self.repo.search_artifacts("", limit=10000)}
+
+        # 2. Walk FS
+        for entry in os.scandir(ingest_dir):
+            if entry.is_file():
+                p = Path(entry.path)
+                try:
+                    stat = p.stat()
+                    fs_meta = {
+                        "path": str(p),
+                        "filename": p.name,
+                        "ext": p.suffix.lower(),
+                        "size_bytes": stat.st_size,
+                        "modified_at": stat.st_mtime
+                    }
+                    
+                    if str(p) not in db_artifacts:
+                        fs_meta["status"] = "NEW"
+                        results.append(fs_meta)
+                    else:
+                        db_rec = db_artifacts[str(p)]
+                        # Compare time/size
+                        # Convert DB time to float if string? 
+                        # In 003 schema, modified_at is TEXT. ArtifactsRepo upsert saves it as is (passed as float?).
+                        # If saved as float in Python sqlite binding -> REAL. If TEXT -> string.
+                        # We must be careful.
+                        # Let's assume strict equality might fail.
+                        db_mtime = float(db_rec.get('modified_at') or 0)
+                        db_size = int(db_rec.get('size_bytes') or 0)
+                        
+                        is_dirty = (abs(db_mtime - fs_meta['modified_at']) > 0.1) or (db_size != fs_meta['size_bytes'])
+                        
+                        if is_dirty:
+                             fs_meta["status"] = "DIRTY"
+                             fs_meta["id"] = db_rec['id']
+                             results.append(fs_meta)
+                        else:
+                             # Use DB status (indexed, failed, etc)
+                             fs_meta["status"] = db_rec.get('ingest_status', 'UNKNOWN').upper()
+                             fs_meta["id"] = db_rec['id']
+                             results.append(fs_meta)
+                             
+                except Exception as e:
+                    logger.warning(f"Error scanning {p}: {e}")
+                    results.append({"path": str(p), "status": "ERROR", "error": str(e)})
+
+        return results
+
+    def index_needed(self, ingest_dir: str) -> List[Dict[str, Any]]:
+        """
+        Returns only files that need indexing (NEW or DIRTY).
+        """
+        all_files = self.scan_files(ingest_dir)
+        return [f for f in all_files if f.get("status") in ("NEW", "DIRTY")]
+
     def index_all(self, ingest_dir: str) -> Dict[str, int]:
         """
         Indexes all files in ingest_dir.
@@ -98,6 +161,13 @@ class IndexingService:
         run_id = str(uuid.uuid4())
         started_at = datetime.datetime.now().isoformat()
         results = {"indexed": 0, "failed": 0, "not_extractable": 0, "skipped": 0}
+        
+        # Scan first? Or just iterate?
+        # index_all usually implies re-indexing everything or just "Make it right"?
+        # User goal: "Index Needed" button processes ONLY NEW/DIRTY.
+        # "Index All" usually means "Index Everything".
+        # But efficiently?
+        # Let's keep index_all simple: iterate and index. index_file logic updates DB.
         
         if not os.path.exists(ingest_dir):
             return results

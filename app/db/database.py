@@ -48,35 +48,16 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
-def _ensure_migrations_table(con: sqlite3.Connection) -> None:
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))"
-    )
 
-
-def apply_migrations(con: sqlite3.Connection, migrations_dir: Path) -> None:
-    _ensure_migrations_table(con)
-    applied = {row["version"] for row in con.execute("SELECT version FROM schema_migrations").fetchall()}
-
-    for sql_file in sorted(migrations_dir.glob("*.sql")):
-        version = sql_file.stem  # e.g. "001_initial"
-        if version in applied:
-            continue
-        con.executescript(sql_file.read_text(encoding="utf-8"))
-        con.execute("INSERT INTO schema_migrations(version) VALUES (?)", (version,))
-        con.commit()
-
+from app.db import migrator
 
 def init_or_upgrade_db(config_path: Path) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     migrations_dir = repo_root / "db" / "migrations"
     db_path = resolve_db_path(config_path)
 
-    con = connect(db_path)
-    try:
-        apply_migrations(con, migrations_dir)
-    finally:
-        con.close()
+    # Delegate to robust migrator
+    migrator.init_or_upgrade_db(db_path, migrations_dir)
 
     return db_path
 
@@ -86,3 +67,4 @@ if __name__ == "__main__":
     config_path = repo_root / "config" / "dev.yaml"
     dbp = init_or_upgrade_db(config_path)
     print(f"OK: DB ready at {dbp}")
+

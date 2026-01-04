@@ -1,8 +1,12 @@
 
 import os
 import yaml
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+from app.core.config_validator import ConfigValidator
+
+logger = logging.getLogger(__name__)
 
 def load_config() -> Dict[str, Any]:
     """
@@ -23,19 +27,16 @@ def load_config() -> Dict[str, Any]:
     env_override_dir = os.environ.get("PROJECT_COPILOT_CONFIG_DIR")
     
     # Priority for ENV: ENV var > default detection
-    # get_env() already respects PROJECT_COPILOT_ENV, so we just use it.
-    env = config_status["env"] # This calls get_env() which checks PROJECT_COPILOT_ENV
+    env = config_status["env"] 
 
     # --- 2. Determine Config Directory and Files ---
     if env_override_file:
-        # CASE A: Explicit Config File
         config_path = Path(env_override_file)
         config_dir = config_path.parent
         files_to_load = [config_path]
         config_status["config_path"] = str(config_path)
         config_status["source"] = "ENV_FILE (PROJECT_COPILOT_CONFIG_FILE)"
     elif env_override_dir:
-        # CASE B: Explicit Config Directory
         config_dir = Path(env_override_dir)
         files_to_load = [
             config_dir / "general.yaml",
@@ -43,7 +44,6 @@ def load_config() -> Dict[str, Any]:
         ]
         config_status["source"] = "ENV_DIR (PROJECT_COPILOT_CONFIG_DIR)"
     else:
-        # CASE C: Default Repo Structure (site-packages or dev repo)
         project_root = Path(__file__).parent.parent.parent
         config_dir = project_root / "config"
         files_to_load = [
@@ -60,10 +60,7 @@ def load_config() -> Dict[str, Any]:
         for file_path in files_to_load:
             if file_path.exists():
                 files_found += 1
-                # Track the last successfully loaded specific file as the main "config_path"
-                # (unless we are in single-file override mode, where it's already set)
                 if not env_override_file:
-                     # For dir mode, we might note specific env config as priority, or general if only general exists
                      config_status["config_path"] = str(file_path)
 
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -73,6 +70,24 @@ def load_config() -> Dict[str, Any]:
             config_status["status"] = "ERROR"
             config_status["error"] = f"No config files found in {config_dir} (tried: {[str(f) for f in files_to_load]})"
         else:
+            # --- 3b. Backward Compatibility (Hardening) ---
+            if "search_enabled" in loaded_config:
+                if "features" not in loaded_config:
+                    loaded_config["features"] = {}
+                loaded_config["features"]["search_enabled"] = loaded_config.pop("search_enabled")
+                local_msg = "DEPRECATED: Top-level 'search_enabled' found. Mapped to 'features.search_enabled'. Please update config."
+                logger.warning(local_msg)
+                # Ensure we propagate this warning to UI if needed, but for now log is enough
+
+            # --- 3c. Validation (Hardening) ---
+            validation_errors = ConfigValidator.validate(loaded_config)
+            if validation_errors:
+                config_status["status"] = "ERROR"
+                config_status["error"] = "Invalid Configuration:\n" + "\n".join(validation_errors)
+                # We still allow loading data for debugging config
+                config_status["data"] = loaded_config
+                return config_status
+
             config_status["data"] = loaded_config
             
             # --- 4. Resolve DB Path ---
@@ -81,11 +96,10 @@ def load_config() -> Dict[str, Any]:
                  raw_db_path = loaded_config["database"]["path"]
             elif "paths" in loaded_config and "db_path" in loaded_config["paths"]:
                  raw_db_path = loaded_config["paths"]["db_path"]
-            elif "db_path" in loaded_config:
+            elif "db_path" in loaded_config: # Legacy support
                  raw_db_path = loaded_config["db_path"]
             
             if raw_db_path:
-                # If relative, resolve against config_dir
                 db_path_obj = Path(raw_db_path)
                 if not db_path_obj.is_absolute():
                     config_status["db_path"] = str(config_dir / raw_db_path)
@@ -93,6 +107,10 @@ def load_config() -> Dict[str, Any]:
                     config_status["db_path"] = str(db_path_obj)
             else:
                  config_status["db_path"] = None
+            
+            # Log startup config (DoD)
+            features = loaded_config.get("features", {})
+            logger.info(f"Config Loaded: search_enabled={features.get('search_enabled')}, fts_enabled={features.get('fts_enabled')}")
 
     except Exception as e:
         config_status["status"] = "ERROR"

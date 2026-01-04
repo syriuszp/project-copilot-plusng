@@ -15,9 +15,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_artifacts_ext ON artifacts(ext);
-CREATE INDEX IF NOT EXISTS idx_artifacts_status ON artifacts(ingest_status);
-CREATE INDEX IF NOT EXISTS idx_artifacts_modified_at ON artifacts(modified_at);
+
 
 CREATE TABLE IF NOT EXISTS artifact_text (
     artifact_id INTEGER PRIMARY KEY REFERENCES artifacts(id) ON DELETE CASCADE,

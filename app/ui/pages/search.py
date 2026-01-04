@@ -40,6 +40,26 @@ def render(app_state: AppState):
     try:
         repo = ArtifactsRepo(db_path)
         search_service = SearchService(repo)
+        
+        # Check for Stale Index (P1)
+        # We need ingest_dir to check staleness
+        ingest_dir = None
+        if "paths" in config and "ingest_dir" in config["paths"]:
+             ingest_dir = config["paths"]["ingest_dir"]
+        
+        if ingest_dir and os.path.exists(ingest_dir):
+             from app.core.indexing_service import IndexingService
+             indexer = IndexingService(repo, features)
+             # Optimization: This hits FS. Cache it? 
+             # sources.py caches it. We can cache here too.
+             @st.cache_data(ttl=60)
+             def check_neeeded(d):
+                 return len(indexer.index_needed(d))
+             
+             needed = check_neeeded(ingest_dir)
+             if needed > 0:
+                 st.warning(f"Index is stale ({needed} files need updates). Check [Sources] page.")
+
     except Exception as e:
         st.error(f"Failed to connect to DB: {e}")
         return
