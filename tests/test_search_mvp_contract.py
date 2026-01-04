@@ -9,11 +9,12 @@ from app.core.indexing_service import IndexingService
 def db_path(tmp_path):
     # Setup a temp DB
     db = tmp_path / "mvp_test.db"
-    migration_path = Path("db/migrations/002_create_artifacts_tables.sql")
+    
+    # Use standard migration logic to ensure strict schema
+    from app.db.migrator import ensure_schema
     with sqlite3.connect(db) as conn:
-        with open(migration_path, "r") as f:
-            script = f.read()
-            conn.executescript(script)
+        ensure_schema(conn)
+        
     return str(db)
 
 def test_search_mvp_contract(db_path, tmp_path):

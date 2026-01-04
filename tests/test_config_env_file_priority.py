@@ -7,7 +7,19 @@ from app.ui.config_loader import load_config
 def test_config_env_priority_source_field(tmp_path):
     # Setup dummy config
     cfg_file = tmp_path / "custom.yaml"
-    cfg_file.write_text("env: PROD\ndb_path: prod.db")
+    cfg_file = tmp_path / "custom.yaml"
+    cfg_file.write_text("""
+env: PROD
+paths:
+  data_dir: data
+  ingest_dir: ingest
+  processed_dir: processed
+  logs_dir: logs
+  db_path: prod.db
+features:
+  extraction:
+    ocr: false
+""")
     
     os.environ["PROJECT_COPILOT_CONFIG_FILE"] = str(cfg_file)
     try:

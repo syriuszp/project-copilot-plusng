@@ -67,7 +67,7 @@ def test_upgrade_from_legacy_001(db_path, migrations_dir):
         assert "path" in cols, "path column missing after upgrade"
         assert "filename" in cols
         assert "ext" in cols
-        assert "artifact_id" in cols # PK preserved
+        assert "id" in cols # PK preserved
         # source_uri should be dropped/renamed to path
         assert "source_uri" not in cols 
         

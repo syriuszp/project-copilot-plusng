@@ -347,12 +347,13 @@ def _ensure_fts(conn: sqlite3.Connection):
         # Check if table exists
         row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_fts'").fetchone()
         if not row:
+
              conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS artifact_fts USING fts5(
                     filename, 
-                    content, 
-                    content='artifact_text', 
-                    content_rowid='artifact_id'
+                    path, 
+                    text, 
+                    ref_id
                 );
             """)
     except Exception as e:

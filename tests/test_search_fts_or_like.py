@@ -8,9 +8,9 @@ from app.core.artifacts_repo import ArtifactsRepo
 def db_path(tmp_path):
     db = tmp_path / "test_search.db"
     # Init schema
+    from app.db.migrator import ensure_schema
     with sqlite3.connect(db) as conn:
-        with open("db/migrations/002_create_artifacts_tables.sql", "r") as f:
-            conn.executescript(f.read())
+        ensure_schema(conn)
     return str(db)
 
 def test_search_fts_default(db_path):
