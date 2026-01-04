@@ -74,6 +74,7 @@ class IndexingService:
                     else:
                         self.repo.set_index_status(artifact_id, "not_extractable")
                         return "not_extractable"
+
             except Exception as e:
                 logger.error(f"Extraction exception for {path}: {e}")
                 self.repo.set_index_status(artifact_id, "failed", str(e))
