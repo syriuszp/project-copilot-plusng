@@ -10,11 +10,11 @@ from app.core.search.models import SearchEvidence
 def db_path(tmp_path):
     # Setup a temp DB
     db = tmp_path / "service_test.db"
-    # Basic schema
+    
+    from app.db.migrator import ensure_schema
     with sqlite3.connect(db) as conn:
-        with open("db/migrations/002_create_artifacts_tables.sql", "r") as f:
-            script = f.read()
-            conn.executescript(script)
+        ensure_schema(conn)
+        
     return str(db)
 
 def test_search_service_contract(db_path, tmp_path):
@@ -36,6 +36,8 @@ def test_search_service_contract(db_path, tmp_path):
     
     # 4. Verify Fields
     ev = results[0]
+    # In SearchEvidence, we use 'artifact_id' as field name, but it comes from DB 'id'
+    # Wait, check SearchEvidence model.
     assert ev.artifact_id == aid
     assert ev.source_path == "/tmp/a.txt"
     assert "Contract" in ev.snippet

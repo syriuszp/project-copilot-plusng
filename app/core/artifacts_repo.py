@@ -49,6 +49,7 @@ class ArtifactsRepo:
         """
         with self._get_conn() as conn:
             cur = conn.cursor()
+            # 003 Strict Schema: PK is 'id'. Unique is 'path'.
             cur.execute("""
                 INSERT INTO artifacts (path, filename, ext, size_bytes, modified_at, sha256, ingest_status, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'new', CURRENT_TIMESTAMP)
@@ -75,7 +76,7 @@ class ArtifactsRepo:
 
     def save_extracted_text(self, artifact_id: int, text: str, extractor: str, chars: int, filename: str, path: str):
         with self._get_conn() as conn:
-            # 1. Update artifact_text (fixed column name extracted_at)
+            # 1. Update artifact_text (Unified)
             conn.execute("""
                 INSERT INTO artifact_text (artifact_id, text, extracted_at, extractor, chars)
                 VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
@@ -97,7 +98,7 @@ class ArtifactsRepo:
                     VALUES (?, ?, ?, ?)
                 """, (filename, path, text, artifact_id))
 
-    def search_artifacts(self, query: str, limit: int = 20, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def search_artifacts(self, query: str, limit: int = 20, offset: int = 0, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         filters = filters or {}
         results = []
         
@@ -153,7 +154,6 @@ class ArtifactsRepo:
                 params.extend([p, p, p])
                 
                 # Deterministic Sort: Snippet length (as proxy for relevance/conciseness) + ID
-                # Using length of snippet (which is substr(text, 1, 400)) acts as simple determinism along with ID
                 sql += " ORDER BY length(snippet) ASC, a.id ASC"
                 
             else:
@@ -161,8 +161,8 @@ class ArtifactsRepo:
                 sql = sql_select + " WHERE " + " AND ".join(where_clauses)
                 sql += " ORDER BY a.id DESC"
 
-            # Apply Limit
-            sql += f" LIMIT {limit}"
+            # Apply Limit and Offset
+            sql += f" LIMIT {limit} OFFSET {offset}"
 
             cursor = conn.execute(sql, params)
             rows = cursor.fetchall()

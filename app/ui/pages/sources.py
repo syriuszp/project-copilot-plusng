@@ -43,7 +43,13 @@ def render(app_state: AppState):
     if db_path:
         try:
             repo = ArtifactsRepo(db_path)
-            indexer = IndexingService(repo)
+            # Pass full config or just features? Registry expects dict. 
+            # We already have `config` dict (from app_state.config.get("data")).
+            # features is inside it. 
+            # Let's pass `features` section specifically or full config?
+            # Registry uses it for flags. Better pass `features`.
+            features = config.get("features", {})
+            indexer = IndexingService(repo, features)
             
             # Fetch all statuses for mapping
             # Using empty query to get all
@@ -65,31 +71,64 @@ def render(app_state: AppState):
 
     # --- Wrapper for caching ---
     @st.cache_data(ttl=5)
-    def cached_list_artifacts(dir_path, f_ext, search):
-        return sources_service.list_artifacts(dir_path, f_ext, search)
+    def cached_scan(dir_path):
+        if indexer:
+            return indexer.scan_workspace(dir_path)
+        return []
+
+    # 1. Fetch File List & Status
+    all_files = cached_scan(ingest_dir)
     
+    # Filter
+    artifacts = []
+    for f in all_files:
+        # Ext filter
+        if filter_ext != "all" and f["ext"] != filter_ext:
+            continue
+        # Search filter
+        if search_term and search_term.lower() not in f["filename"].lower():
+            continue
+        artifacts.append(f)
+
+    # Action Counters
+    needed_count = len([f for f in all_files if f["status"] in ("NEW", "DIRTY")])
+
     # --- ACTIONS ---
-    # Index All
     if indexer:
-        c_top1, c_top2 = st.columns([4, 1])
+        c_top1, c_top2, c_top3 = st.columns([3, 1, 1])
         with c_top2:
-            if st.button("Index All", type="primary"):
+            if needed_count > 0:
+                if st.button(f"Index Needed ({needed_count})", type="primary", help="Process NEW and DIRTY files"):
+                    with st.spinner("Indexing updates..."):
+                        updates = indexer.index_needed(ingest_dir)
+                        count = 0
+                        progress_bar = st.progress(0)
+                        for i, item in enumerate(updates):
+                            indexer.index_file(item["path"])
+                            count += 1
+                            if updates:
+                                progress_bar.progress((i + 1) / len(updates))
+                        progress_bar.empty()
+                        
+                    st.success(f"Indexed {count} files.")
+                    st.cache_data.clear()
+                    st.rerun()
+            else:
+                st.button("Index Needed (0)", disabled=True)
+                
+        with c_top3:
+             if st.button("Index All"):
                 with st.spinner("Indexing all files..."):
                     stats = indexer.index_all(ingest_dir)
                 st.success(f"Indexed: {stats.get('indexed', 0)}, Failed: {stats.get('failed', 0)}")
+                st.cache_data.clear()
                 st.rerun()
 
     # --- Main Area ---
     st.subheader("Ingestion Inbox")
     
-    # 1. Fetch File List
-    artifacts = cached_list_artifacts(ingest_dir, filter_ext, search_term)
-    
     if not artifacts:
-        if filter_ext != "all" or search_term:
-            st.info("No artifacts found matching criteria.")
-        else:
-             st.info("No artifacts ingested yet.")
+        st.info("No artifacts found matching criteria.")
         return
 
     # 2. Layout: List (Left) | Detail/Preview (Right)
@@ -103,39 +142,41 @@ def render(app_state: AppState):
         
         with st.container():
             for i, art in enumerate(artifacts):
-                safe_key = hashlib.md5(art.path.encode('utf-8')).hexdigest()
+                safe_key = hashlib.md5(art["path"].encode('utf-8')).hexdigest()
                 
                 # Determine status
-                status = db_status_map.get(art.path, "new")
+                status = art["status"]
                 status_color = {
-                    "new": "grey",
-                    "indexed": "green",
-                    "failed": "red",
-                    "not_extractable": "orange"
+                    "NEW": "blue",
+                    "DIRTY": "orange",
+                    "INDEXED": "green",
+                    "FAILED": "red",
+                    "NOT_EXTRACTABLE": "grey"
                 }.get(status, "grey")
                 
                 # Card Row
                 c1, c2, c3 = st.columns([3, 1, 1])
                 
                 # Name & Badge
-                c1.markdown(f"**{art.name}**  \n<span style='color:{status_color}; font-size:0.8em'>● {status.upper()}</span> <span style='color:grey; font-size:0.8em'>| {art.type}</span>", unsafe_allow_html=True)
+                c1.markdown(f"**{art['filename']}**  \n<span style='color:{status_color}; font-size:0.8em'>● {status}</span> <span style='color:grey; font-size:0.8em'>| {art['ext']}</span>", unsafe_allow_html=True)
                 
                 # View Button
                 if c2.button("View", key=f"view_{safe_key}"):
-                    st.session_state["selected_artifact_path"] = art.path
+                    st.session_state["selected_artifact_path"] = art["path"]
                 
                 # Index Button (only if indexer available)
                 if indexer:
-                    btn_label = "Re-Index" if status == "indexed" else "Index"
+                    btn_label = "Update" if status in ("DIRTY", "INDEXED") else "Index"
                     if c3.button(btn_label, key=f"idx_{safe_key}"):
-                        with st.spinner(f"Indexing {art.name}..."):
-                            res = indexer.index_file(art.path)
+                        with st.spinner(f"Indexing {art['filename']}..."):
+                            res = indexer.index_file(art["path"])
                         if res == "indexed":
-                            st.toast(f"Indexed {art.name}", icon="✅")
+                            st.toast(f"Indexed {art['filename']}", icon="✅")
                         elif res == "not_extractable":
-                            st.toast(f"Not extractable: {art.name}", icon="⚠️")
+                            st.toast(f"Not extractable", icon="⚠️")
                         else:
-                            st.toast(f"Failed: {art.name}", icon="❌")
+                            st.toast(f"Failed", icon="❌")
+                        st.cache_data.clear()
                         st.rerun()
                 
                 st.divider()
@@ -143,63 +184,40 @@ def render(app_state: AppState):
         # Check selection
         selected_path = st.session_state.get("selected_artifact_path")
         if selected_path:
-            selected_artifact = next((a for a in artifacts if a.path == selected_path), None)
+            selected_artifact = next((a for a in artifacts if a["path"] == selected_path), None)
 
     # --- Right: Detail & Preview ---
     with col_detail:
         if selected_artifact:
-            st.markdown(f"### {selected_artifact.name}")
+            st.markdown(f"### {selected_artifact['filename']}")
             
             tab_preview, tab_meta = st.tabs(["Preview", "Metadata"])
             
             with tab_meta:
                  # Helper to manage hash state
-                 hash_key = f"hash_{selected_artifact.path}"
+                 hash_key = f"hash_{selected_artifact['path']}"
                  current_hash = st.session_state.get(hash_key)
                  
-                 details = sources_service.get_artifact_details(
-                     selected_artifact.path, 
-                     compute_hash=False 
-                 )
-                 
-                 # Enrich with DB status
-                 status = db_status_map.get(details.path, "new")
+                 status = selected_artifact.get("status", "UNKNOWN")
                  
                  meta_dict = {
-                     "Path": details.path,
-                     "Size": f"{details.size} bytes",
-                     "Modified": datetime.datetime.fromtimestamp(details.mtime).isoformat(),
-                     "Type": details.type,
+                     "Path": selected_artifact["path"],
+                     "Size": f"{selected_artifact['size_bytes']} bytes",
+                     "Modified": datetime.datetime.fromtimestamp(selected_artifact['modified_at']).isoformat(),
+                     "Type": selected_artifact["ext"],
                      "Status": status
                  }
                  
                  if current_hash:
                      meta_dict["SHA256"] = current_hash
-                     # Save to DB if calculated (P2)
-                     # Repo upsert handles updating sha256 if passed.
+                     # Save to DB if calculated
                      if repo:
                          try:
-                            # We need to construct full meta. Repo.upsert_artifact takes path, filename, ext, etc.
-                            # We can just update sha256? No, upsert needs PK path.
-                            repo_meta = {
-                                "path": details.path,
-                                "filename": details.name,
-                                "ext": details.type,
-                                "sha256": current_hash
-                                # size, mtime might be outdated in params but upsert uses COALESCE for optional? 
-                                # Code: sha256=COALESCE(excluded.sha256, artifacts.sha256)
-                                # So we pass sha256, others will potentially update or be null?
-                                # My upsert SQL: VALUES (..., ?, ?, ...) ON CONFLICT ...
-                                # The validation in upsert might require some fields.
-                                # Let's assume re-indexing sets it, or separate method.
-                                # For P2, let's just show it. Writing to DB without index run might be confusing state?
-                                # "Compute Hash writes sha256" is the task.
-                                # I will call repo.upsert with just path and sha256?
-                                # SQL 'filename' is NOT NULL. So I need to pass it.
-                            }
+                            repo_meta = selected_artifact.copy()
+                            repo_meta["sha256"] = current_hash
                             repo.upsert_artifact(repo_meta)
                          except Exception as e:
-                             pass # P2 nicety, optional failure
+                             pass 
                  else:
                      meta_dict["SHA256"] = "Not calculated"
                      
@@ -207,33 +225,30 @@ def render(app_state: AppState):
                  
                  if not current_hash:
                      if st.button("Compute Hash"):
-                         d_with_hash = sources_service.get_artifact_details(selected_artifact.path, compute_hash=True)
-                         st.session_state[hash_key] = d_with_hash.hash
-                         st.rerun()
+                         try:
+                             with open(selected_artifact["path"], "rb") as f:
+                                 digest = hashlib.sha256(f.read()).hexdigest()
+                             st.session_state[hash_key] = digest
+                             st.rerun()
+                         except Exception as e:
+                             st.error(f"Error computing hash: {e}")
 
                  if os.name == 'nt':
                      if st.button("Open Folder"):
                          try:
-                             # P2.2: Tooltip logic via help param or text
                              st.info("Opening Explorer (check taskbar)...")
-                             os.startfile(os.path.dirname(details.path))
+                             os.startfile(os.path.dirname(selected_artifact["path"]))
                          except Exception as e:
                              st.error(f"Cannot open folder: {e}")
 
             with tab_preview:
-                preview = sources_service.preview_artifact(selected_artifact.path)
+                preview = sources_service.preview_artifact(selected_artifact["path"])
                 
                 if preview.type == "text":
                     st.code(preview.content, language=None)
                 elif preview.type == "image":
                     st.image(preview.content)
                 elif preview.type == "pdf_placeholder":
-                    # Check if pdf extractor worked? 
-                    # If status is "indexed", we actually HAVE text in DB. 
-                    # Sources view shows "preview" from DISK. 
-                    # The requirement says "preview (reuse sources)".
-                    # For PDF, disk preview is placeholder. 
-                    # Evidence view (Search) will show snippet from DB.
                     st.info("PDF preview not available in Sources (View in Search for indexed content).")
                 elif preview.type == "error":
                     st.error(preview.error_message)

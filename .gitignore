@@ -214,6 +214,8 @@ releases/
 logs/
 data/
 db/
+!db/migrations/
+!app/db/
 *.log
 
 # OS / IDE

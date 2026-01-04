@@ -10,19 +10,10 @@ from app.core.indexing_service import IndexingService
 def db_path(tmp_path):
     # Setup a temp DB
     db = tmp_path / "test.db"
-    # Create tables via SQL script execution or Repo init if logic is there?
-    # Repo init creates FTS, but regular tables come from migration.
-    # We must init tables. 
-    # Can we import SQL? Or hardcode minimal schema here?
-    # Better to read the migration file.
-    migration_path = Path("db/migrations/002_create_artifacts_tables.sql")
-    if not migration_path.exists():
-        pytest.fail("Migration file not found")
-        
+    
+    from app.db.migrator import ensure_schema
     with sqlite3.connect(db) as conn:
-        with open(migration_path, "r") as f:
-            script = f.read()
-            conn.executescript(script)
+        ensure_schema(conn)
             
     return str(db)
 

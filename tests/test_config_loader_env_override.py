@@ -45,7 +45,16 @@ def test_config_file_override(clean_env, tmp_path):
     
     data = {
         "setting": "custom_value",
-        "database": {"path": "my_db.sqlite"} # Relative path
+        "paths": {
+            "data_dir": "data",
+            "ingest_dir": "ingest",
+            "processed_dir": "processed",
+            "logs_dir": "logs",
+            "db_path": "my_db.sqlite"
+        },
+        "features": {
+            "extraction": {"ocr": False}
+        }
     }
     
     with open(cfg_file, "w") as f:
@@ -70,7 +79,11 @@ def test_config_dir_override(clean_env, tmp_path):
     prod = tmp_path / "prod.yaml"
     
     with open(general, "w") as f:
-        yaml.dump({"general_key": "gen_val"}, f)
+        yaml.dump({
+            "general_key": "gen_val",
+            "paths": {"data_dir": "d", "ingest_dir": "i", "processed_dir": "p", "logs_dir": "l", "db_path": "d"},
+            "features": {"extraction": {"ocr": False}}
+        }, f)
         
     with open(prod, "w") as f:
         yaml.dump({"env_key": "prod_val"}, f)
@@ -95,7 +108,8 @@ def test_absolute_db_path_preserved(clean_env, tmp_path):
     abs_db = str(tmp_path / "absolute.db")
     
     data = {
-        "paths": {"db_path": abs_db}
+        "paths": {"db_path": abs_db, "data_dir": "d", "ingest_dir": "i", "processed_dir": "p", "logs_dir": "l"},
+        "features": {"extraction": {"ocr": False}}
     }
     
     with open(cfg_file, "w") as f:
