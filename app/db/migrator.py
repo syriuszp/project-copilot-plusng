@@ -204,10 +204,94 @@ def ensure_schema(conn: sqlite3.Connection):
     # ---------------------------------------------------------
     # 2. ARTIFACT_TEXT ENFORCEMENT
     # ---------------------------------------------------------
-    # Ensure it uses artifact_id PK
+    # ---------------------------------------------------------
+    # 2. ARTIFACT_TEXT ENFORCEMENT
+    # ---------------------------------------------------------
+    
+    # Check if table exists 
+    has_text_table = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_text'").fetchone() is not None
+    
+    need_text_rebuild = False
+    if has_text_table:
+        # Check FK
+        fks = conn.execute("PRAGMA foreign_key_list(artifact_text)").fetchall()
+        # Expected: (id, seq, table, from, to, ...)
+        # We want to='id' and from='artifact_id' and table='artifacts'
+        
+        # Helper to find specific FK
+        valid_fk = False
+        for fk in fks:
+            if fk[2] == "artifacts" and fk[3] == "artifact_id" and fk[4] == "id":
+                valid_fk = True
+                break
+        
+        if not valid_fk:
+            logger.warning("artifact_text has invalid FK or legacy schema. Triggering Rebuild.")
+            need_text_rebuild = True
+    else:
+        # If missing, we must create it (003 should have, but ensure idempotent)
+        logger.warning("artifact_text missing. Creating.")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS artifact_text (
+                artifact_id INTEGER PRIMARY KEY,
+                text TEXT,
+                extracted_at TEXT,
+                extractor TEXT,
+                chars INTEGER,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+            )
+        """)
+        
+    if need_text_rebuild:
+        try:
+             conn.execute("ALTER TABLE artifact_text RENAME TO artifact_text_legacy")
+             
+             # Create New Strict
+             conn.execute("""
+                CREATE TABLE artifact_text (
+                    artifact_id INTEGER PRIMARY KEY,
+                    text TEXT,
+                    extracted_at TEXT,
+                    extractor TEXT,
+                    chars INTEGER,
+                    FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+                )
+             """)
+             
+             # Migrate Data
+             # Columns usually: artifact_id, text, extracted_at, extractor, chars
+             # Detect what legacy has
+             t_cur = conn.execute("PRAGMA table_info(artifact_text_legacy)")
+             t_cols = {row[1] for row in t_cur.fetchall()}
+             
+             cols_to_copy = ["artifact_id", "text", "extracted_at", "extractor"]
+             if "chars" in t_cols: cols_to_copy.append("chars")
+             
+             # Only copy if artifact_id exists in NEW artifacts table (referential integrity)
+             # The new artifacts table uses 'id'.
+             # Assuming artifact_id in legacy text map to 'id' in new artifacts.
+             # Note: if strict artifacts rebuild happened, PKs might have shifted ONLY if we didn't preserve them.
+             # In artifacts rebuild, we did SELECT MAX(id) as aid -> So we preserved IDs.
+             
+             conn.execute(f"""
+                INSERT INTO artifact_text ({', '.join(cols_to_copy)})
+                SELECT {', '.join(cols_to_copy)}
+                FROM artifact_text_legacy
+                WHERE artifact_id IN (SELECT id FROM artifacts) 
+             """)
+             
+             conn.execute("DROP TABLE artifact_text_legacy")
+             logger.info("artifact_text Strict Rebuild Complete.")
+             
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to rebuild artifact_text: {e}")
+            raise e
+
+    # Ensure columns (double check)
     _ensure_columns(conn, "artifact_text", {
          "artifact_id": "INTEGER", 
-         "text": "TEXT",
+         "text": "TEXT", 
          "extracted_at": "TEXT",
          "extractor": "TEXT",
          "chars": "INTEGER"

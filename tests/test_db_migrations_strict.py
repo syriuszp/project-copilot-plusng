@@ -52,10 +52,19 @@ def test_fresh_003_install(tmp_path):
         assert "ingest_status" in cols
         
         # Verify Unique Index exists
+        # Verify Unique Index exists on PATH specifically
         indices = conn.execute("PRAGMA index_list(artifacts)").fetchall()
-        print(indices)
-        has_unique = any(i[2] == 1 for i in indices)
-        assert has_unique, "Fresh install must have UNIQUE index"
+        has_unique_path = False
+        for idx in indices:
+            # idx: (seq, name, unique, origin, partial)
+            if idx[2] == 1: # Unique
+                 idx_name = idx[1]
+                 idx_cols = [c[2] for c in conn.execute(f"PRAGMA index_info('{idx_name}')")]
+                 if idx_cols == ["path"]:
+                     has_unique_path = True
+                     break
+        
+        assert has_unique_path, "Fresh install must have UNIQUE index on 'path'"
         
         # Verify PK is id
         pk_info = [c for c in conn.execute("PRAGMA table_info(artifacts)") if c[5] == 1]
