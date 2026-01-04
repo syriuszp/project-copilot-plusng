@@ -76,24 +76,23 @@ class IndexingService:
             return "failed"
 
 
-    def scan_files(self, ingest_dir: str) -> List[Dict[str, Any]]:
+    def scan_workspace(self, ingest_dir: str) -> List[Dict[str, Any]]:
         """
         Scans directory and compares with DB to determine status.
         Returns list of file metadata including calculated 'status'.
         Statuses: NEW, DIRTY, INDEXED, FAILED, NOT_EXTRACTABLE
+        Strict Logic: 
+        - NEW: Not in DB.
+        - DIRTY: mtime/size mismatch.
+        - INDEXED/FAILED: From DB.
         """
         results = []
         if not os.path.exists(ingest_dir):
             return results
 
         # 1. Get DB State
-        # We need a method to get all artifacts or we fetch per file?
-        # Listing all is better for performance if N is small (<1000).
-        # Assuming ArtifactsRepo has list_all(). If not, we iterate files and specific query?
-        # Let's query DB for all paths in this dir? 
-        # For MVP, fetching all from artifacts table is acceptable.
-        # repo.search_artifacts doesn't give all raw data.
-        # We'll need repo method or use search_artifacts with limit=10000.
+        # Fetch all paths and timestamps/sizes
+        # We use limit=10000 for MVP scalability
         db_artifacts = {a['path']: a for a in self.repo.search_artifacts("", limit=10000)}
 
         # 2. Walk FS
@@ -115,15 +114,13 @@ class IndexingService:
                         results.append(fs_meta)
                     else:
                         db_rec = db_artifacts[str(p)]
+                        
                         # Compare time/size
-                        # Convert DB time to float if string? 
-                        # In 003 schema, modified_at is TEXT. ArtifactsRepo upsert saves it as is (passed as float?).
-                        # If saved as float in Python sqlite binding -> REAL. If TEXT -> string.
-                        # We must be careful.
-                        # Let's assume strict equality might fail.
-                        db_mtime = float(db_rec.get('modified_at') or 0)
+                        # Provide default 0.0 for None to ensure comparison works
+                        db_mtime = float(db_rec.get('modified_at') or 0.0)
                         db_size = int(db_rec.get('size_bytes') or 0)
                         
+                        # Mtime tolerance (0.1s for filesystem jitter)
                         is_dirty = (abs(db_mtime - fs_meta['modified_at']) > 0.1) or (db_size != fs_meta['size_bytes'])
                         
                         if is_dirty:
@@ -131,8 +128,29 @@ class IndexingService:
                              fs_meta["id"] = db_rec.get('artifact_id', db_rec.get('id'))
                              results.append(fs_meta)
                         else:
-                             # Use DB status (indexed, failed, etc)
-                             fs_meta["status"] = db_rec.get('ingest_status', 'UNKNOWN').upper()
+                             # Use DB status. 
+                             # If DB status is missing for some reason, default to UNKNOWN?
+                             # Or if 'new' in DB (upserted but not indexed), treat as NEW for UI?
+                             # In Strict mode, DB 'new' means pending.
+                             # If we handle "NEW" badge here as "FS New", maybe allow "PENDING"?
+                             # Requirement says: NEW / DIRTY / INDEXED / FAILED.
+                             # If DB says 'new', it technically isn't NEW (FS-only), but "Not Indexed".
+                             # Let's map 'new' -> 'NEW' for UI consistency?
+                             # Or strict DB status.
+                             status = db_rec.get('ingest_status', 'new').lower()
+                             
+                             # Map to UI Badges
+                             if status == 'new':
+                                 fs_meta["status"] = "NEW" # Treat pending as NEW
+                             elif status == 'failed':
+                                 fs_meta["status"] = "FAILED"
+                             elif status == 'indexed':
+                                 fs_meta["status"] = "INDEXED"
+                             elif status == 'not_extractable':
+                                 fs_meta["status"] = "NOT_EXTRACTABLE"
+                             else:
+                                 fs_meta["status"] = status.upper()
+
                              fs_meta["id"] = db_rec.get('artifact_id', db_rec.get('id'))
                              results.append(fs_meta)
                              
@@ -146,7 +164,7 @@ class IndexingService:
         """
         Returns only files that need indexing (NEW or DIRTY).
         """
-        all_files = self.scan_files(ingest_dir)
+        all_files = self.scan_workspace(ingest_dir)
         return [f for f in all_files if f.get("status") in ("NEW", "DIRTY")]
 
     def index_all(self, ingest_dir: str) -> Dict[str, int]:

@@ -73,7 +73,7 @@ def render(app_state: AppState):
     @st.cache_data(ttl=5)
     def cached_scan(dir_path):
         if indexer:
-            return indexer.scan_files(dir_path)
+            return indexer.scan_workspace(dir_path)
         return []
 
     # 1. Fetch File List & Status

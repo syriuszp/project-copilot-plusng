@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 class ConfigValidator:
     """
     Validates configuration structure and types.
+    Strict enforcement for Epic 3.1 Hardening.
     """
     
     @staticmethod
@@ -16,11 +17,11 @@ class ConfigValidator:
         
         # 1. Top-Level Sections
         if "features" not in config:
-            errors.append("Missing section: 'features'")
+            errors.append("Missing required section: 'features'")
         if "paths" not in config:
-            errors.append("Missing section: 'paths'")
+            errors.append("Missing required section: 'paths'")
             
-        # 2. Features Checks
+        # 2. Features Checks (Strict bools)
         features = config.get("features", {})
         if not isinstance(features, dict):
              errors.append("'features' must be a dictionary")
@@ -39,7 +40,7 @@ class ConfigValidator:
                     ConfigValidator._check_bool(extraction, "docx", errors)
                     ConfigValidator._check_bool(extraction, "pdf", errors)
         
-        # 3. Paths Checks
+        # 3. Paths Checks (Existence & Type)
         paths = config.get("paths", {})
         if not isinstance(paths, dict):
             errors.append("'paths' must be a dictionary")
@@ -48,7 +49,34 @@ class ConfigValidator:
             for p in required_paths:
                 if p not in paths:
                     errors.append(f"Missing path config: 'paths.{p}'")
-        
+                else:
+                    # Check existence logic? 
+                    # DoD says: "jeśli nie istnieją -> utwórz albo daj jednoznaczny error w UI"
+                    # We can try to create directories here or just validity of path string.
+                    # Creating usage directories (logs, ingest) is safe. Creating db_path (file) is not.
+                    val = paths[p]
+                    if not isinstance(val, str):
+                        errors.append(f"'paths.{p}' must be a string")
+                        continue
+                        
+                    # Attempt creation for directories
+                    if p in ["ingest_dir", "processed_dir", "logs_dir"]:
+                        try:
+                            path_obj = Path(val)
+                            # Handle relative paths? Usually relative to Repo Root or CWD?
+                            # Config paths usually resolved by app context, but let's try basic validity.
+                            if not path_obj.exists():
+                                # Try create (Audit requirement: "create or give error")
+                                path_obj.mkdir(parents=True, exist_ok=True)
+                        except Exception as e:
+                            errors.append(f"Path 'paths.{p}' ({val}) is invalid or not creatable: {e}")
+
+        # 4. Strict Logging of Results (DoD)
+        if errors:
+            logger.error(f"Config Validation Failed: {errors}")
+        else:
+            logger.info("Config OK: Features=%s", features)
+            
         return errors
 
     @staticmethod
