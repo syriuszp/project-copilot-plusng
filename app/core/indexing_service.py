@@ -21,6 +21,7 @@ class IndexingService:
         """
         if not os.path.exists(path):
             return "failed" # File removed during index
+
             
         try:
             p = Path(path)
@@ -77,10 +78,7 @@ class IndexingService:
                 logger.error(f"Extraction exception for {path}: {e}")
                 self.repo.set_index_status(artifact_id, "failed", str(e))
                 return "failed"
-            except Exception as e:
-                logger.error(f"Extraction failed for {path}: {e}")
-                self.repo.set_index_status(artifact_id, "failed", str(e))
-                return "failed"
+
                 
         except Exception as e:
             logger.error(f"Indexing error for {path}: {e}")
