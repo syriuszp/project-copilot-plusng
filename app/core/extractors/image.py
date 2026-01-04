@@ -14,6 +14,10 @@ class ImageExtractor(BaseExtractor):
         if not extraction_cfg.get("ocr", False):
             return None
 
+        binaries = self.config.get("binaries", {})
+        if not binaries.get("tesseract"):
+             return None
+
         try:
              # Real impl:
              # from PIL import Image

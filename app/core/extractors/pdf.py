@@ -17,9 +17,15 @@ class PdfExtractor(BaseExtractor):
             # Fallback for Scanned PDFs
             if not full_text.strip():
                 extraction_cfg = self.config.get("extraction", {})
+                binaries = self.config.get("binaries", {})
+                
                 if extraction_cfg.get("ocr", False):
-                    # Placeholder: Real implementation requires pytesseract/pdf2image
-                    return "[OCR Content Placeholder: Scanned PDF detected]"
+                    if binaries.get("tesseract") and binaries.get("poppler"):
+                        # Placeholder: Real implementation requires pytesseract/pdf2image
+                        return "[OCR Content Placeholder: Scanned PDF detected]"
+                    else:
+                        # Log missing binaries?
+                        return None # NOT_EXTRACTABLE implies we tried but couldn't (e.g. no tools)
                 return None # Signals 'not_extractable'
                 
             return full_text

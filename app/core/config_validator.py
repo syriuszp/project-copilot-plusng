@@ -36,6 +36,8 @@ class ConfigValidator:
                  else:
                     ConfigValidator._check_bool(extraction, "images", errors)
                     ConfigValidator._check_bool(extraction, "ocr", errors)
+                    ConfigValidator._check_bool(extraction, "docx", errors)
+                    ConfigValidator._check_bool(extraction, "pdf", errors)
         
         # 3. Paths Checks
         paths = config.get("paths", {})
