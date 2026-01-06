@@ -58,7 +58,7 @@ def render(app_state: AppState):
              
              needed = check_neeeded(ingest_dir)
              if needed > 0:
-                 st.warning(f"Index is stale ({needed} files need updates). Check [Sources] page.")
+                 st.warning(f"Search results may be incomplete – {needed} files pending indexing. Check [Sources] page.")
 
     except Exception as e:
         st.error(f"Failed to connect to DB: {e}")
@@ -66,8 +66,16 @@ def render(app_state: AppState):
 
     # --- Search Bar & Filters ---
     c_search, c_filter = st.columns([3, 1])
+    
+    # Persistence Logic
+    if "saved_search_query" in st.session_state and "search_query" not in st.session_state:
+        st.session_state["search_query"] = st.session_state["saved_search_query"]
+        
+    def update_query_state():
+        st.session_state["saved_search_query"] = st.session_state.search_query
+
     with c_search:
-        query = st.text_input("Query", placeholder="Type to search content or filename...", key="search_query")
+        query = st.text_input("Query", placeholder="Type to search content or filename...", key="search_query", on_change=update_query_state)
     
     # Filters (Simplified for MVP as per repo limitations or strict requirements)
     # Repo currently takes `filters` dict but SearchService.search only takes query and limit in signature?
@@ -134,11 +142,36 @@ def render(app_state: AppState):
             
             if os.path.exists(selected_evidence.source_path):
                 preview = sources_service.preview_artifact(selected_evidence.source_path)
-                if preview.type == "text":
-                    st.code(preview.content)
+                
+                # Fallback: Get Extracted Text if preview fails
+                extracted_text = None
+                # We have artifact_id in selected_evidence
+                if repo and selected_evidence.artifact_id:
+                     extracted_text = repo.get_text_content(selected_evidence.artifact_id)
+                
+                if preview.type == "text" or extracted_text:
+                    # Prefer extracted DB text if available (shows what is actually indexed, including OCR/CSV cleanup)
+                    content_to_show = extracted_text if extracted_text else preview.content
+                    
+                    # Highlighting (Case Insensitive)
+                    if query and content_to_show:
+                        import re
+                        # Escape query for regex
+                        pattern = re.compile(re.escape(query), re.IGNORECASE)
+                        # Highlight with yellow background using HTML in Markdown
+                        # Note: extensive HTML might slow down large texts
+                        # Using Streamlit :background[text] syntax (newer) or HTML
+                        highlighted = pattern.sub(lambda m: f"**:{'orange'}[{m.group(0)}]**", content_to_show)
+                        
+                        st.markdown("### Content Preview (Highlighted)")
+                        st.markdown(highlighted)
+                    else:
+                        st.code(content_to_show)
+                        
                 elif preview.type == "image":
                     st.image(preview.content)
                 elif preview.type == "pdf_placeholder":
+                     # This branch might be unreachable due to fallback logic above, but keep for safety
                      st.info("PDF preview not available.")
                 else:
                     st.warning(preview.error_message)
@@ -153,9 +186,11 @@ def render(app_state: AppState):
                 "Mode": selected_evidence.search_mode
             })
             
-            if st.button("Open in Sources"):
-                 # Placeholder for navigation
-                 pass
+            def go_to_sources():
+                 st.session_state["selected_artifact_path"] = selected_evidence.source_path
+                 st.session_state["navigation_selection"] = "Sources"
+
+            st.button("Open in Sources", on_click=go_to_sources)
         else:
              if query:
                 st.info("Select a result to preview.")

@@ -9,8 +9,7 @@ def db_path(tmp_path):
     db = tmp_path / "test_search.db"
     # Init schema
     from app.db.migrator import ensure_schema
-    with sqlite3.connect(db) as conn:
-        ensure_schema(conn)
+    ensure_schema(str(db))
     return str(db)
 
 def test_search_fts_default(db_path):

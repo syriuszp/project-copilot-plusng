@@ -18,10 +18,18 @@ def render_sidebar(app_state: AppState, page_map: Dict[str, Callable[[AppState],
     st.sidebar.title("Project Copilot")
     st.sidebar.caption(f"Env: {app_state.env}")
     
-    selection = st.sidebar.radio("Navigation", list(page_map.keys()))
+    selection = st.sidebar.radio("Navigation", list(page_map.keys()), key="navigation_selection")
     
     st.sidebar.divider()
-    st.sidebar.info("v0.1.0 - Epic 1 shell")
+    st.sidebar.divider()
+    
+    from app.core.version_util import get_app_version
+    ver, is_dev = get_app_version()
+    
+    if is_dev:
+        st.sidebar.markdown(f":red[{ver}] (DEV)")
+    else:
+        st.sidebar.success(f"{ver}")
     
     # Execute the selected page
     if selection and selection in page_map:

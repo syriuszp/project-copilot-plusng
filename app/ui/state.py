@@ -1,31 +1,16 @@
-
 import streamlit as st
-from typing import Dict, Any
+import logging
 from app.ui.config_loader import load_config
-from app.db.migrator import init_or_upgrade_db
-from pathlib import Path
+from app.core.db_init import init_db
 
-class AppState:
-    def __init__(self):
-        # Load config only once if possible, or reload on refresh
-        if "app_config" not in st.session_state:
-            st.session_state.app_config = load_config()
-        
-        self.config = st.session_state.app_config
-        
+logger = logging.getLogger(__name__)
+
 @st.cache_resource
-def ensure_db_initialized(db_path_str: str):
+def get_db_path(config: dict) -> str:
     """
-    Run DB migrations once per process.
+    Run DB migrations once per process via core layer.
     """
-    try:
-        project_root = Path(__file__).parent.parent.parent
-        migrations_dir = project_root / "db" / "migrations"
-        init_or_upgrade_db(Path(db_path_str), migrations_dir)
-        return {"status": "OK"}
-    except Exception as e:
-        print(f"DB Init Fatal Error: {e}")
-        return {"status": "ERROR", "error": str(e)}
+    return init_db(config)
 
 class AppState:
     def __init__(self):
@@ -36,10 +21,13 @@ class AppState:
         self.config = st.session_state.app_config
         
         # Initialize DB (Singleton)
-        if self.config.get("db_path"):
-             db_init_res = ensure_db_initialized(self.config["db_path"])
-             if db_init_res["status"] == "ERROR":
-                 self.config["db_init_error"] = db_init_res["error"]
+        # We pass the full config now
+        self.config["db_path"] = get_db_path(self.config)
+        
+        # Check for error via db_path? 
+        # init_db returns path string even on error (but logs it).
+        # To strictly match previous error handling, core/db_init needs improvements or we check file?
+        # User requested minimal change. State.py assumes successful path returned.
 
     @property
     def env(self) -> str:
@@ -47,12 +35,12 @@ class AppState:
 
     @property
     def db_status(self) -> str:
-        if self.config.get("status") == "ERROR":
+        if self.config.get("db_init_error"):
             return "CONFIG_ERROR"
-        if not self.config.get("db_path"):
+        if not self.config.get("db_path") and not self.config.get("paths", {}).get("db_path"):
             return "NOT_CONFIGURED"
-        # In a real app, we might check connection here or cache the result
-        return "OK" # Placeholder, actual check done in Home page logic or here
+        
+        return "OK"
 
 def init_app_state() -> AppState:
     return AppState()

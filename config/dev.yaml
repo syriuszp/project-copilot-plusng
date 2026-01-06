@@ -1,4 +1,5 @@
-﻿env: dev
+﻿# Development Environment Overrides
+env: DEV
 
 paths:
   db_path: dev_data/db/project_copilot.dev.db
@@ -7,4 +8,6 @@ paths:
   logs_dir: dev_data/logs
 
 features:
-  search_enabled: true
+  # Enable OCR in DEV for testing (will fallback if binary missing)
+  extraction:
+    ocr: true
