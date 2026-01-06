@@ -23,6 +23,16 @@ class ConfigValidator:
             
         # 2. Features Checks (Strict bools)
         features = config.get("features", {})
+        
+        # Legacy: Check root search_enabled
+        if "search_enabled" in config:
+            logger.warning("DEPRECATED: 'search_enabled' at root is deprecated. Please move to 'features.search_enabled'.")
+            if "search_enabled" not in features:
+                 # Auto-migration in memory
+                 if not isinstance(features, dict): features = {} # Should be caught by check below but safety first
+                 features["search_enabled"] = config["search_enabled"]
+                 config["features"] = features
+
         if not isinstance(features, dict):
              errors.append("'features' must be a dictionary")
         else:

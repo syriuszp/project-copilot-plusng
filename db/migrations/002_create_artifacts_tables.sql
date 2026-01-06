@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS artifact_text (
     extracted_at TEXT,
     extractor TEXT,
     chars INTEGER,
-    FOREIGN KEY(artifact_id) REFERENCES artifacts(artifact_id) ON DELETE CASCADE
+    FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS index_runs (

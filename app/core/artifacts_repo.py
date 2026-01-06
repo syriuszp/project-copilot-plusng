@@ -18,9 +18,25 @@ class ArtifactsRepo:
     def _check_and_init_fts(self):
         """
         Attempts to create FTS5 table. If fails, fallback to LIKE.
+        Also checks for legacy FTS schema (missing ref_id) and rebuilds if needed.
         """
         try:
             with self._get_conn() as conn:
+                # 1. Check if legacy FTS exists (missing ref_id)
+                needs_rebuild = False
+                try:
+                    cur = conn.execute("PRAGMA table_info(artifact_fts)")
+                    cols = {row[1] for row in cur.fetchall()}
+                    if cols and "ref_id" not in cols:
+                        logger.warning("Detected legacy artifact_fts schema (missing ref_id). Rebuilding.")
+                        needs_rebuild = True
+                except:
+                    pass
+                
+                if needs_rebuild:
+                    conn.execute("DROP TABLE IF EXISTS artifact_fts")
+
+                # 2. Create FTS
                 # Using ref_id to avoid potential naming collision/syntax issues with artifact_id
                 conn.execute("""
                     CREATE VIRTUAL TABLE IF NOT EXISTS artifact_fts USING fts5(
@@ -74,18 +90,18 @@ class ArtifactsRepo:
                 WHERE id = ?
             """, (status, error, artifact_id))
 
-    def save_extracted_text(self, artifact_id: int, text: str, extractor: str, chars: int, filename: str, path: str):
+    def save_extracted_text(self, artifact_id: int, text: str, extractor: str, chars: int, filename: str, path: str, extracted_at: Optional[str] = None):
         with self._get_conn() as conn:
             # 1. Update artifact_text (Unified)
             conn.execute("""
                 INSERT INTO artifact_text (artifact_id, text, extracted_at, extractor, chars)
-                VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
+                VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?)
                 ON CONFLICT(artifact_id) DO UPDATE SET
                     text=excluded.text,
-                    extracted_at=CURRENT_TIMESTAMP,
+                    extracted_at=excluded.extracted_at,
                     extractor=excluded.extractor,
                     chars=excluded.chars;
-            """, (artifact_id, text, extractor, chars))
+            """, (artifact_id, text, extracted_at, extractor, chars))
             
             # 2. Update status
             conn.execute("UPDATE artifacts SET ingest_status='indexed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (artifact_id,))
@@ -107,7 +123,7 @@ class ArtifactsRepo:
             
             # Base query structure for LIKE fallback if FTS not used or initial
             sql_select = """
-                SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len, 
+                SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.error, a.modified_at, a.size_bytes, a.sha256, LENGTH(t.text) as text_len, 
                        substr(t.text, 1, 400) as snippet
                 FROM artifacts a
                 LEFT JOIN artifact_text t ON a.id = t.artifact_id
@@ -127,9 +143,14 @@ class ArtifactsRepo:
             # Search Logic
             if query and self._fts_enabled:
                 # FTS Search
+                def quote_fts(q: str) -> str:
+                    return '"' + q.replace('"', '""') + '"'
+                
+                safe_query = quote_fts(query)
+
                 # Join with FTS table
                 sql = """
-                    SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.modified_at, LENGTH(t.text) as text_len,
+                    SELECT a.id, a.path, a.filename, a.ext, a.ingest_status, a.error, a.modified_at, a.size_bytes, a.sha256, LENGTH(t.text) as text_len,
                            snippet(artifact_fts, 2, '**', '**', '...', 64) as snippet
                     FROM artifacts a
                     JOIN artifact_fts f ON a.id = f.ref_id
@@ -140,11 +161,11 @@ class ArtifactsRepo:
                 for clause in where_clauses[1:]: # skip 1=1
                     sql += f" AND {clause}"
                 
-                # Deterministic Sort: FTS Rank
-                sql += " ORDER BY rank"
+                # Deterministic Sort: FTS Rank then Filename
+                sql += " ORDER BY rank, a.filename ASC"
                 
                 # Params: query + filter params
-                params = [query] + params
+                params = [safe_query] + params
                 
             elif query:
                 # LIKE Fallback
@@ -166,8 +187,19 @@ class ArtifactsRepo:
 
             cursor = conn.execute(sql, params)
             rows = cursor.fetchall()
+            
+            # Determine mode for metadata
+            if query and self._fts_enabled:
+                 mode = "FTS"
+            elif query:
+                 mode = "LIKE"
+            else:
+                 mode = "SCAN"
+
             for r in rows:
-                results.append(dict(r))
+                d = dict(r)
+                d["_search_mode"] = mode
+                results.append(d)
                 
         return results
 
@@ -188,3 +220,14 @@ class ArtifactsRepo:
                 run_meta.get('files_failed', 0), run_meta.get('files_not_extractable', 0),
                 1 if self._fts_enabled else 0
             ))
+
+    def get_text_content(self, artifact_id: int) -> Optional[str]:
+        """
+        Retrieves the full extracted text for an artifact ID.
+        """
+        with self._get_conn() as conn:
+            cur = conn.execute("SELECT text FROM artifact_text WHERE artifact_id = ?", (artifact_id,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            return None

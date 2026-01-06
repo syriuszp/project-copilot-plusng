@@ -12,8 +12,7 @@ def db_path(tmp_path):
     
     # Use standard migration logic to ensure strict schema
     from app.db.migrator import ensure_schema
-    with sqlite3.connect(db) as conn:
-        ensure_schema(conn)
+    ensure_schema(str(db))
         
     return str(db)
 
