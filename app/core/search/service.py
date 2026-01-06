@@ -19,14 +19,8 @@ class SearchService:
         
         evidence_list = []
         for r in raw_results:
-            # Determine search mode from result if possible, or infer from repo state
-            # Repo implementation of search_artifacts needs to ideally return this info
-            # For now, we know if repo.fts_enabled is true, it used FTS.
-            # But specific query might fall back or be mixed? 
-            # Repo logic is: if fts_enabled -> matches FTS. else -> matches LIKE.
-            # We can pass this info from repo or infer it.
-            # Let's infer for now based on repo state, as it's a global switch there.
-            mode = "FTS" if self.repo.fts_enabled else "LIKE"
+            # Determine search mode from result (populated by repo)
+            mode = r.get('_search_mode', 'UNKNOWN')
             
             # Map valid fields
             ev = SearchEvidence(

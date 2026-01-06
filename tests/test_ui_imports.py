@@ -1,7 +1,8 @@
-
 import pytest
 import sys
 import os
+
+pytest.importorskip("streamlit")
 
 # Ensure repo root is in python path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))

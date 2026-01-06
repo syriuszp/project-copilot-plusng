@@ -28,13 +28,20 @@ class IndexingService:
             stats = p.stat()
             
             # 1. Upsert Artifact
+            indexing_cfg = self.config.get("indexing", {})
+            detect_by = indexing_cfg.get("detect_by", ["mtime", "size"])
+            
+            sha = None
+            if "sha256" in detect_by:
+                 sha = self._calculate_sha256(p)
+                 
             meta = {
                 "path": str(p),
                 "filename": p.name,
                 "ext": p.suffix.lower(),
                 "size_bytes": stats.st_size,
-                "modified_at": stats.st_mtime, # Float timestamp
-                "sha256": None # Optional P2
+                "modified_at": stats.st_mtime,
+                "sha256": sha
             }
             
             # Check if updated (optimization: skip extraction if size/mtime match?)
@@ -55,14 +62,23 @@ class IndexingService:
             try:
                 result = extractor.extract(str(p))
                 
-                if result.content:
+                # Update contract usage: result should match ExtractResult
+                # content -> text
+                # But current existing extractors might use .content
+                # We will update extractors/models.py next.
+                # For now assume .content is the text field or mapped.
+                
+                text_content = getattr(result, "text", None) or getattr(result, "content", None)
+                
+                if text_content:
                     self.repo.save_extracted_text(
                         artifact_id, 
-                        result.content, 
+                        text_content, 
                         extractor.__class__.__name__, 
-                        len(result.content),
+                        getattr(result, "chars", len(text_content)),
                         meta["filename"],
-                        meta["path"]
+                        meta["path"],
+                        extracted_at=result.metadata.get("extracted_at")
                     )
                     return "indexed"
                 else:
@@ -162,6 +178,12 @@ class IndexingService:
                         if is_dirty:
                              fs_meta["status"] = "DIRTY"
                              fs_meta["id"] = db_rec.get('id')
+                             
+                             # DEBUG DIRTY REASON
+                             diff = abs(db_mtime - fs_meta['modified_at'])
+                             size_diff = db_size != fs_meta['size_bytes']
+                             logger.warning(f"DIRTY DETECTED: {p.name} | Diff: {diff:.6f} | SizeDiff: {size_diff} | DB_time: {db_mtime} | FS_time: {fs_meta['modified_at']} | DB_size: {db_size} | FS_size: {fs_meta['size_bytes']}")
+                             
                              results.append(fs_meta)
                         else:
                              # Use DB status. 
@@ -252,3 +274,17 @@ class IndexingService:
             logger.error(f"Failed to record index run: {e}")
                 
         return results
+
+    def _calculate_sha256(self, path: Path) -> str:
+        import hashlib
+        try:
+            sha256_hash = hashlib.sha256()
+            with open(path, "rb") as f:
+                # Read key block to be efficient with memory
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logger.warning(f"Failed to calc SHA256 for {path}: {e}")
+            return "sha_error"
+

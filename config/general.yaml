@@ -1,2 +1,37 @@
+# Project Copilot - General Configuration
+# Single Source of Truth for Defaults.
+# Environment-specific files (dev.yaml, prod.yaml) override these values.
+
+env: DEV
+
+paths:
+  # Base paths relative to project root (unless absolute)
+  db_path: data/project_copilot.db
+  ingest_dir: data/ingest
+  processed_dir: data/processed
+  logs_dir: data/logs
+  tools_dir: tools # Directory for local binaries (Option A)
+
 features:
+  # Feature Flags
   search_enabled: true
+  fts_enabled: true
+  
+  extraction:
+    docx: true
+    pdf: true # Basic PDF support
+    images: false # OCR disabled by default (requires binaries)
+    ocr:
+      enabled: false
+      tesseract_path: null # Override if not in tools/
+    pdf_advanced:
+      poppler_path: null # Override for image-based PDFs
+ 
+
+indexing:
+  # Criteria for re-indexing
+  detect_by: ["mtime", "size", "sha256"]
+tools:
+  # Optional overrides for binary paths
+  tesseract_path: null
+  poppler_path: null

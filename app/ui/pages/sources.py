@@ -66,10 +66,15 @@ def render(app_state: AppState):
     with st.sidebar:
         st.subheader("Inbox Filters")
         search_term = st.text_input("Search files", placeholder="filename...")
-        ext_options = ["all", ".pdf", ".txt", ".md", ".json", ".png", ".jpg"]
+        
+        # Status Filter
+        status_options = ["All", "Needs Indexing", "Indexed", "Failed", "New", "Dirty"]
+        filter_status = st.selectbox("Status", status_options)
+        
+        ext_options = ["all", ".docx", ".pdf", ".txt", ".md", ".html", ".mht", ".png", ".jpg"]
         filter_ext = st.selectbox("Extension", ext_options)
 
-    # --- Wrapper for caching ---
+    # --- Wrapper for caching (P1 Performance) ---
     @st.cache_data(ttl=5)
     def cached_scan(dir_path):
         if indexer:
@@ -79,9 +84,22 @@ def render(app_state: AppState):
     # 1. Fetch File List & Status
     all_files = cached_scan(ingest_dir)
     
-    # Filter
+    # Filter Logic
     artifacts = []
     for f in all_files:
+        # Status Filter
+        s = f["status"]
+        if filter_status == "Needs Indexing" and s not in ("NEW", "DIRTY"):
+            continue
+        if filter_status == "Indexed" and s != "INDEXED":
+            continue
+        if filter_status == "Failed" and s not in ("FAILED", "NOT_EXTRACTABLE"):
+            continue
+        if filter_status == "New" and s != "NEW":
+            continue
+        if filter_status == "Dirty" and s != "DIRTY":
+            continue
+            
         # Ext filter
         if filter_ext != "all" and f["ext"] != filter_ext:
             continue
@@ -114,9 +132,11 @@ def render(app_state: AppState):
                     st.cache_data.clear()
                     st.rerun()
             else:
-                st.button("Index Needed (0)", disabled=True)
-                
+                 # Disabled state to show "Clean"
+                 st.button("Index Needed (0)", disabled=True)
+                 
         with c_top3:
+             # "Index All" is fallback, not default
              if st.button("Index All"):
                 with st.spinner("Indexing all files..."):
                     stats = indexer.index_all(ingest_dir)
@@ -138,10 +158,40 @@ def render(app_state: AppState):
     
     # --- Left: List ---
     with col_list:
-        st.caption(f"Found {len(artifacts)} items")
+        c_list_head, c_refresh = st.columns([3, 1])
+        c_list_head.caption(f"Found {len(artifacts)} items")
+        if c_refresh.button("Refresh"):
+            st.cache_data.clear()
+            st.rerun()
+        
+        # Pagination (P1 Scalability)
+        PAGE_SIZE = 50
+        total_pages = max(1, (len(artifacts) + PAGE_SIZE - 1) // PAGE_SIZE)
+        
+        # State key for page
+        if "sources_page" not in st.session_state:
+            st.session_state["sources_page"] = 1
+            
+        page = st.session_state["sources_page"]
+        if page > total_pages: page = total_pages
+        
+        # Paginator UI
+        if total_pages > 1:
+            c_prev, c_page, c_next = st.columns([1, 2, 1])
+            if c_prev.button("Prev", disabled=page==1):
+                st.session_state["sources_page"] = page - 1
+                st.rerun()
+            c_page.markdown(f"<center>Page {page} of {total_pages}</center>", unsafe_allow_html=True)
+            if c_next.button("Next", disabled=page==total_pages):
+                st.session_state["sources_page"] = page + 1
+                st.rerun()
+        
+        start_idx = (page - 1) * PAGE_SIZE
+        end_idx = start_idx + PAGE_SIZE
+        current_batch = artifacts[start_idx:end_idx]
         
         with st.container():
-            for i, art in enumerate(artifacts):
+            for i, art in enumerate(current_batch):
                 safe_key = hashlib.md5(art["path"].encode('utf-8')).hexdigest()
                 
                 # Determine status
@@ -154,20 +204,30 @@ def render(app_state: AppState):
                     "NOT_EXTRACTABLE": "grey"
                 }.get(status, "grey")
                 
+                # Metadata for Badge
+                mod_time = datetime.datetime.fromtimestamp(art['modified_at']).strftime('%Y-%m-%d %H:%M')
+                
                 # Card Row
                 c1, c2, c3 = st.columns([3, 1, 1])
                 
-                # Name & Badge
-                c1.markdown(f"**{art['filename']}**  \n<span style='color:{status_color}; font-size:0.8em'>● {status}</span> <span style='color:grey; font-size:0.8em'>| {art['ext']}</span>", unsafe_allow_html=True)
+                # Name & Badge (Rich HTML)
+                # Showing filename, status badge, and modified time line
+                c1.markdown(
+                    f"**{art['filename']}**<br>"
+                    f"<span style='color:{status_color}; font-size:0.8em'>● {status}</span> "
+                    f"<span style='color:grey; font-size:0.7em'>| {mod_time} | {art['ext']}</span>", 
+                    unsafe_allow_html=True
+                )
                 
                 # View Button
                 if c2.button("View", key=f"view_{safe_key}"):
                     st.session_state["selected_artifact_path"] = art["path"]
                 
-                # Index Button (only if indexer available)
+                # Index Button
                 if indexer:
                     btn_label = "Update" if status in ("DIRTY", "INDEXED") else "Index"
-                    if c3.button(btn_label, key=f"idx_{safe_key}"):
+                    # Help tooltip shows granular details
+                    if c3.button(btn_label, key=f"idx_{safe_key}", help=f"Re-index {art['filename']}"):
                         with st.spinner(f"Indexing {art['filename']}..."):
                             res = indexer.index_file(art["path"])
                         if res == "indexed":
@@ -244,15 +304,31 @@ def render(app_state: AppState):
             with tab_preview:
                 preview = sources_service.preview_artifact(selected_artifact["path"])
                 
+                # Check for extracted text fallback (if indexed)
+                extracted_text = None
+                if selected_artifact.get("id") and repo:
+                    extracted_text = repo.get_text_content(selected_artifact["id"])
+
+                # Logic: Show Native Preview OR Extracted Text
                 if preview.type == "text":
                     st.code(preview.content, language=None)
                 elif preview.type == "image":
                     st.image(preview.content)
-                elif preview.type == "pdf_placeholder":
-                    st.info("PDF preview not available in Sources (View in Search for indexed content).")
+                elif preview.type == "pdf_placeholder" or (preview.type == "error" and "not supported" in preview.error_message):
+                    # Try to show extracted text
+                    if extracted_text:
+                        st.info("Previewing Extracted Text (Structure may be lost)")
+                        st.text_area("Content", extracted_text, height=600)
+                    elif preview.type == "pdf_placeholder":
+                        st.info("PDF preview not available. Text content will appear here after indexing.")
+                    else:
+                        st.warning(f"No preview: {preview.error_message}")
                 elif preview.type == "error":
-                    st.error(preview.error_message)
-                else:
-                    st.warning("No preview available")
+                     st.error(preview.error_message)
+                
+                # If we have extracted text but the file type was weird, show it anyway
+                if extracted_text and preview.type not in ("text", "image", "pdf_placeholder"):
+                     with st.expander("View Extracted Text"):
+                         st.text_area("ExtractedContent", extracted_text, height=400)
         else:
             st.info("Select an artifact to view details.")

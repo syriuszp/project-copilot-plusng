@@ -11,34 +11,52 @@ class PdfExtractor(BaseExtractor):
                 extracted = page.extract_text()
                 if extracted and extracted.strip():
                     text.append(extracted)
-                else:
-                    # Placeholder for future VLM
-                    # [IMAGE page=3 index=1 extractable=false]
-                    text.append(f"[IMAGE page={i+1} index=1 extractable=false]")
-            
+                
+                # Extended Extraction: Embedded Images
+                # Check config first
+                extraction_cfg = self.config.get("extraction", {})
+                if extraction_cfg.get("images", False) and extraction_cfg.get("ocr", False):
+                     try:
+                         # Lazy import to avoid circular dependency issues if any, though Registry handles it
+                         from app.core.extractors.image import ImageExtractor
+                         img_extractor = ImageExtractor(self.config)
+                         
+                         for image_file_object in page.images:
+                             # image_file_object.name, image_file_object.data
+                             import tempfile
+                             import os
+                             
+                             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image_file_object.name)[1]) as tmp:
+                                 tmp.write(image_file_object.data)
+                                 tmp_path = tmp.name
+                             
+                             try:
+                                 res = img_extractor.extract(tmp_path)
+                                 if res.content:
+                                     text.append(f"\n[IMG-OCR (Page {i+1}): {res.content}]")
+                             except Exception as e:
+                                 # specific image fail shouldn't break whole PDF
+                                 pass 
+                             finally:
+                                 if os.path.exists(tmp_path):
+                                     os.unlink(tmp_path)
+                     except Exception as e:
+                         pass # Warning?
+
             full_text = "\n".join(text)
             
-            # If mostly empty/placeholder, check for Scanned
-            has_real_text = any(t for t in text if not t.startswith("[IMAGE"))
-            
-            if not has_real_text:
-                extraction_cfg = self.config.get("extraction", {})
-                binaries = self.config.get("binaries", {})
-                
-                if extraction_cfg.get("ocr", False):
-                    if binaries.get("tesseract") and binaries.get("poppler"):
-                        # Placeholder: Real implementation requires pytesseract/pdf2image
-                         return ExtractResult(
-                             content="[OCR Content Placeholder: Scanned PDF detected]",
-                             metadata={"source": "ocr", "method": "placeholder"}
-                         )
-                    else:
-                        return ExtractResult(content=None, error="OCR binaries missing", metadata={"source": "ocr_failed"})
-                
-                # OCR disabled
-                return ExtractResult(content=None, metadata={"source": "image_only"})
-                
-            return ExtractResult(content=full_text, metadata={"source": "text"})
+            import datetime
+            meta = {
+                "source": "text",
+                "chars": len(full_text),
+                "extracted_at": datetime.datetime.now().isoformat()
+            }
+
+            if not full_text.strip():
+                 # "no_text" status - implies valid file but empty content (e.g. scanned without OCR)
+                 return ExtractResult(content=None, error=None, metadata={**meta, "status": "no_text"})
+                 
+            return ExtractResult(content=full_text, metadata=meta)
             
         except Exception as e:
             return ExtractResult(content=None, error=str(e), metadata={"source": "error"})
