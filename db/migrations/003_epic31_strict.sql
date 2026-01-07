@@ -1,0 +1,4 @@
+-- 003_epic31_strict_schema.sql
+-- [AUDIT FIX] Neutralized.
+-- Logic moved to 001_initial.sql (Base V3 Strict) and enforced by 004_strict_schema_enforcement.sql.
+-- Kept as marker to preserve migration sequence.
