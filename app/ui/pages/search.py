@@ -49,7 +49,8 @@ def render(app_state: AppState):
         
         if ingest_dir and os.path.exists(ingest_dir):
              from app.core.indexing_service import IndexingService
-             indexer = IndexingService(repo, features)
+             # Pass full config (Fix: v0.3.6)
+             indexer = IndexingService(repo, config)
              # Optimization: This hits FS. Cache it? 
              # sources.py caches it. We can cache here too.
              @st.cache_data(ttl=60)
