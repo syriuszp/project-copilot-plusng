@@ -39,12 +39,14 @@ class PdfExtractor(BaseExtractor):
                                      text.append(f"\n[IMG-OCR (Page {i+1}): {res.content}]")
                              except Exception as e:
                                  # specific image fail shouldn't break whole PDF
+                                 print(f"[WARN] PDF Image Extract Failed: {e}")
                                  pass 
                              finally:
                                  if os.path.exists(tmp_path):
                                      os.unlink(tmp_path)
                      except Exception as e:
                          pass # Warning?
+                         print(f"[WARN] PDF Image Loop Failed: {e}")
 
             full_text = "\n".join(text)
             
