@@ -7,7 +7,10 @@ from app.core.external_tools import ExternalTools
 class ImageExtractor(BaseExtractor):
     def extract(self, path: str) -> ExtractResult:
         # Check if image extraction feature is enabled
-        extraction_cfg = self.config.get("extraction", {})
+        features_cfg = self.config.get("features", {})
+        extraction_cfg = features_cfg.get("extraction", {})
+        if not extraction_cfg:
+             extraction_cfg = self.config.get("extraction", {})
         
         # If images disabled, return None (NOT_EXTRACTABLE)
         if not extraction_cfg.get("images", False):
