@@ -213,7 +213,7 @@ prod/
 releases/
 logs/
 data/
-db/
+db/*.db
 !db/migrations/
 !app/db/
 *.log
