@@ -18,11 +18,12 @@ features:
 
 paths:
   # Absolute paths recommended for PROD
-  db_path: "C:/Path/To/prod/db/project_copilot.db"
-  ingest_dir: "C:/Path/To/prod/data/ingest"
-  processed_dir: "C:/Path/To/prod/data/processed"
-  logs_dir: "C:/Path/To/prod/logs"
-  tools_dir: "C:/Path/To/prod/tools"
+  # Ensure these point to existing, writable directories
+  db_path: "project_copilot.db" 
+  ingest_dir: "data/ingest"
+  processed_dir: "data/processed"
+  logs_dir: "logs"
+  tools_dir: "tools"
 
 # Logging Configuration (Optional)
 # log_level: INFO
