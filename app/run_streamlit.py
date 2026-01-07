@@ -1,5 +1,13 @@
 
 import streamlit as st
+import logging
+
+# Configure logging for PROD visibility (Standard wrapper often hides warnings)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Ensure app root is in path if run directly - MUST BE BEFORE LOCAL IMPORTS
 
