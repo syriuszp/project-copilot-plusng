@@ -14,11 +14,13 @@ class ImageExtractor(BaseExtractor):
         
         # If images disabled, return None (NOT_EXTRACTABLE)
         if not extraction_cfg.get("images", False):
+            print(f"[DEBUG] ImageExtractor: Images disabled in config.")
             return ExtractResult(content=None, metadata={"source": "disabled"})
             
         ocr_val = extraction_cfg.get("ocr", False)
         # Images require OCR
         if not ocr_val:
+            print(f"[DEBUG] ImageExtractor: OCR disabled in config.")
             return ExtractResult(content=None, metadata={"source": "ocr_disabled"})
 
         # Check Binaries via centralized logic (Option A)
@@ -33,19 +35,27 @@ class ImageExtractor(BaseExtractor):
         try:
              # Run Tesseract
              # tesseract <input> stdout
-             # Use capture_output=True to suppress console spam
-             process = subprocess.run(
-                 [tesseract_bin, path, "stdout"],
-                 capture_output=True,
-                 text=True,
-                 check=True
-             )
-             text = process.stdout.strip()
-             
-             if not text:
-                 return ExtractResult(content=None, error="OCR returned empty text", metadata={"source": "ocr_empty"})
+             # stdout=PIPE, stderr=PIPE
+            print(f"[DEBUG] ImageExtractor: Running tesseract on {path}")
+            proc = subprocess.run(
+                [tesseract_bin, path, "stdout"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            if proc.returncode != 0:
+                print(f"[ERROR] Tesseract failed: {proc.stderr}")
+                return ExtractResult(content=None, error=f"OCR Warning: {proc.stderr}", metadata={"source": "error"})
+                
+            text = proc.stdout.strip()
+            print(f"[DEBUG] Tesseract output length: {len(text)}")
+            
+            if not text:
+                print(f"[DEBUG] Tesseract returned empty text.")
+                return ExtractResult(content=None, metadata={"source": "ocr_empty"})
                  
-             return ExtractResult(content=text, metadata={"source": "ocr"})
+            return ExtractResult(content=text, metadata={"source": "ocr"})
              
         except subprocess.CalledProcessError as e:
             # Capture stderr for error message but don't spam console

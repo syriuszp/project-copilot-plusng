@@ -25,6 +25,12 @@ package-dir = {"" = "."}
 where = ["."]
 include = ["app*", "db*"]
 
+[tool.setuptools.package-data]
+db = ["migrations/*.sql"]
+app = ["*.yaml", "*.json"]
+
+
+
 [tool.setuptools_scm]
 version_scheme = "no-guess-dev"
 local_scheme = "no-local-version"
