@@ -29,9 +29,7 @@ include = ["app*", "db*"]
 db = ["migrations/*.sql"]
 app = ["*.yaml", "*.json"]
 
-[tool.setuptools.package-data]
-db = ["migrations/*.sql"]
-app = ["*.yaml", "*.json"]
+
 
 [tool.setuptools_scm]
 version_scheme = "no-guess-dev"
