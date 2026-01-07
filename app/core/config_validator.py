@@ -46,7 +46,13 @@ class ConfigValidator:
                     errors.append("'features.extraction' must be a dictionary")
                  else:
                     ConfigValidator._check_bool(extraction, "images", errors)
-                    ConfigValidator._check_bool(extraction, "ocr", errors)
+                    if "images" in extraction: ConfigValidator._check_bool(extraction, "images", errors)
+                    
+                    # 3. Extraction: OCR (bool or dict)
+                    ocr = extraction.get("ocr")
+                    if ocr is not None:
+                        if not isinstance(ocr, (bool, dict)):
+                             errors.append(f"Field 'features.extraction.ocr' must be boolean or dict, got {type(ocr).__name__}")
                     ConfigValidator._check_bool(extraction, "docx", errors)
                     ConfigValidator._check_bool(extraction, "pdf", errors)
         

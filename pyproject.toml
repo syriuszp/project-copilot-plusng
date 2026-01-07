@@ -21,7 +21,7 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*"]
+include = ["app*", "db*"]
 
 [tool.setuptools_scm]
 version_scheme = "no-guess-dev"
