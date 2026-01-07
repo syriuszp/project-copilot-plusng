@@ -13,8 +13,11 @@ class PdfExtractor(BaseExtractor):
                     text.append(extracted)
                 
                 # Extended Extraction: Embedded Images
-                # Check config first
-                extraction_cfg = self.config.get("extraction", {})
+                # Check config
+                features_cfg = self.config.get("features", {})
+                extraction_cfg = features_cfg.get("extraction", {})
+                if not extraction_cfg:
+                     extraction_cfg = self.config.get("extraction", {})
                 if extraction_cfg.get("images", False) and extraction_cfg.get("ocr", False):
                      try:
                          # Lazy import to avoid circular dependency issues if any, though Registry handles it
