@@ -48,8 +48,9 @@ def render(app_state: AppState):
             # features is inside it. 
             # Let's pass `features` section specifically or full config?
             # Registry uses it for flags. Better pass `features`.
-            features = config.get("features", {})
-            indexer = IndexingService(repo, features)
+            # Pass full config (P0 Fix for PROD)
+            # IndexingService -> Registry -> ImageExtractor needs 'paths' for tools.
+            indexer = IndexingService(repo, config)
             
             # Fetch all statuses for mapping
             # Using empty query to get all

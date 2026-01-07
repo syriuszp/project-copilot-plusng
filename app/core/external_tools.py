@@ -131,5 +131,12 @@ class ExternalTools:
              p4 = tools_dir / "bin" / target_name
              if p4.exists(): return str(p4)
 
-        # 3. System PATH
-        return shutil.which(target_name)
+        # 3. System PATH (Fallback)
+        system_path = shutil.which(target_name)
+        if system_path:
+             return system_path
+             
+        # Hardening (Auditor Risk 2): Log "Silent Failure" candidate
+        # If we are looking for a standard binary and failed config + tools dir + path.
+        logger.warning(f"Binary '{target_name}' not found. Searched: [Config: {config_path}], [Tools: {tools_dir}], [System PATH].")
+        return None

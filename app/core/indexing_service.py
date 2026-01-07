@@ -13,6 +13,11 @@ class IndexingService:
     def __init__(self, repo: ArtifactsRepo, config: Dict[str, Any] = None):
         self.repo = repo
         self.config = config or {}
+        
+        # Hardening (Auditor Risk 1): Contract Validation
+        if "paths" not in self.config:
+             logger.warning("IndexingService initialized without 'paths' in config. External tools location (OCR) might fail.")
+             
         self.registry = ExtractorRegistry(config)
 
     def index_file(self, path: str) -> str:
