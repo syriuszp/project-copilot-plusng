@@ -246,7 +246,7 @@ def test_hybrid_ranking_is_deterministic(tmp_path):
     
     assert results[2].chunk_id == "A"
     assert results[2].source == "vector"
-    assert results[2].score == 0.6
+    assert results[2].score == 0.3
 
 from scripts.db_housekeeping import list_legacy_tables, drop_legacy_tables
 

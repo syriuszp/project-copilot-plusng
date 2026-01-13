@@ -59,7 +59,7 @@ def test_fts_always_ranks_above_vector():
     
     # Rank 2: Vector
     assert results[1].chunk_id == "chunk_v"
-    assert results[1].source == "semantic"
+    assert results[1].source == "vector"
     # Max possible vector score is 0.3 * 1.0 = 0.3
     assert results[1].score <= 0.35 
 

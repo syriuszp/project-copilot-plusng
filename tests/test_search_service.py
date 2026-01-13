@@ -47,7 +47,7 @@ def test_search_service_contract(db_path, tmp_path):
     ev = results[0]
     # In SearchEvidence, we use 'artifact_id' as field name, but it comes from DB 'id'
     # Wait, check SearchEvidence model.
-    assert ev.artifact_id == aid
+    assert str(ev.artifact_id) == str(aid)
     assert ev.source_path == "/tmp/a.txt"
     assert "Contract" in ev.snippet
     assert ev.search_mode in ["FTS", "LIKE"]

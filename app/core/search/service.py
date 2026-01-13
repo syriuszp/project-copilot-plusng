@@ -27,6 +27,9 @@ class SearchService:
         if hasattr(self.repo, 'db_path') and self.repo.db_path:
             db_path = self.repo.db_path
         
+        self.db_path = db_path
+        # print(f"DEBUG: SearchService db_path resolved to: '{db_path}'")
+        
         self.emb_repo = EmbeddingRepository(db_path)
         self.emb_service = EmbeddingService(self.emb_repo, config)
         self.vector_store = VectorStore(index_dir)
@@ -53,8 +56,7 @@ class SearchService:
             
         # 2. Extract Artifact Metadata & Total Counts
         import sqlite3
-        db_path = self.config.get("db_path") or self.config.get("paths", {}).get("db", "data/project_copilot.db")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         
         # Get unique artifact IDs found
@@ -63,6 +65,7 @@ class SearchService:
         # I need to get meta_map first.
         
         placeholders = ','.join('?' for _ in chunk_ids)
+        
         cursor = conn.execute(f"""
             SELECT c.chunk_id, c.artifact_id, a.path, a.ext 
             FROM chunks c
@@ -140,7 +143,7 @@ class SearchService:
                 source_path=meta['path'],
                 snippet=final_snippet,
                 score=rc.score,
-                search_mode=f"{rc.match_type}",
+                search_mode=f"{rc.match_type}".upper(),
                 match_type=rc.match_type,
                 is_literal=rc.is_literal,
                 keyword_hits_in_chunk=getattr(rc, 'keyword_hits', 0),
