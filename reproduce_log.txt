@@ -1,0 +1,23 @@
+Checking FTS5...
+FTS5 table created.
+BM25 available: (-0.0,)
+--- Test FTS Query & Highlights ---
+Query: project
+Testing Snippet...
+Snippet OK: This is a literal match for <b>project</b> management.
+Snippet OK: <b>Project</b> management is key. Management of projects is hard.
+Testing Offsets...
+Offsets Failed: unable to use function offsets in the requested context
+
+Query: "project" AND "management"
+Hits (Manual): 3
+Hits (Manual): 2
+
+--- Test Counters (SearchService Logic) ---
+Artifact 101: Chunks=2, Hits=2
+
+--- Test Strict Matching ---
+Text: 'The plant is growing plan.', Terms: ['plan'], Hits: 1
+
+SUCCESS: All checks passed.
+Cleanup failed: [WinError 32] The process cannot access the file because it is being used by another process: 'test_fts_v10.db'

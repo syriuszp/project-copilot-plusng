@@ -120,16 +120,16 @@ def render(app_state: AppState):
                 if st.button(f"Index Needed ({needed_count})", type="primary", help="Process NEW and DIRTY files"):
                     with st.spinner("Indexing updates..."):
                         updates = indexer.index_needed(ingest_dir)
-                        count = 0
-                        progress_bar = st.progress(0)
-                        for i, item in enumerate(updates):
-                            indexer.index_file(item["path"])
-                            count += 1
-                            if updates:
-                                progress_bar.progress((i + 1) / len(updates))
-                        progress_bar.empty()
+                        paths_to_index = [u["path"] for u in updates]
+                        if paths_to_index:
+                             res = indexer.index_paths(paths_to_index)
+                             count = len(res["results"])
+                        else:
+                             count = 0
                         
-                    st.success(f"Indexed {count} files.")
+                    st.success(f"Indexed {count} files (Run: {res.get('index_run_id','n/a')}).")
+                    st.cache_data.clear()
+                    st.rerun()
                     st.cache_data.clear()
                     st.rerun()
             else:
@@ -230,10 +230,15 @@ def render(app_state: AppState):
                     # Help tooltip shows granular details
                     if c3.button(btn_label, key=f"idx_{safe_key}", help=f"Re-index {art['filename']}"):
                         with st.spinner(f"Indexing {art['filename']}..."):
-                            res = indexer.index_file(art["path"])
-                        if res == "indexed":
-                            st.toast(f"Indexed {art['filename']}", icon="✅")
-                        elif res == "not_extractable":
+                            # Use batch API for single file to guarantee finalize/insights
+                            res = indexer.index_paths([art["path"]])
+                            # res['results'] is list of (path, status)
+                            status = dict(res["results"]).get(art["path"], "unknown")
+                            run_id = res["index_run_id"]
+                            
+                        if status == "indexed":
+                            st.toast(f"Indexed {art['filename']} (run={run_id})", icon="✅")
+                        elif status == "not_extractable":
                             st.toast(f"Not extractable", icon="⚠️")
                         else:
                             st.toast(f"Failed", icon="❌")
@@ -323,7 +328,8 @@ def render(app_state: AppState):
                     elif preview.type == "pdf_placeholder":
                         st.info("PDF preview not available. Text content will appear here after indexing.")
                     else:
-                        st.warning(f"No preview: {preview.error_message}")
+                        # UX: Don't show warning for unsupported types, just info
+                        st.info(f"Preview not natively supported for {selected_artifact['ext']}. Index this file to view extracted content.")
                 elif preview.type == "error":
                      st.error(preview.error_message)
                 

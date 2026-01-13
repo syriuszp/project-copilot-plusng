@@ -39,7 +39,7 @@ def render(app_state: AppState):
     # Ideally Service is initialized once in AppState, but flexible here for MVP.
     try:
         repo = ArtifactsRepo(db_path)
-        search_service = SearchService(repo)
+        search_service = SearchService(repo, app_state.config)
         
         # Check for Stale Index (P1)
         # We need ingest_dir to check staleness
@@ -77,34 +77,56 @@ def render(app_state: AppState):
 
     with c_search:
         query = st.text_input("Query", placeholder="Type to search content or filename...", key="search_query", on_change=update_query_state)
-    
-    # Filters (Simplified for MVP as per repo limitations or strict requirements)
-    # Repo currently takes `filters` dict but SearchService.search only takes query and limit in signature?
-    # P1 Requirement: "SearchService.search(query, limit, filters) -> SearchResult" (Wait, requirement said search(query, limit, filters)?)
-    # "SearchService.search(query, limit, filters)->SearchResult" was in prompt?
-    # Let me check prompt... "def search(self, query: str, limit: int = 20):" in Prompt suggestion.
-    # But later "jedna funkcja ... SearchService.search(query, limit, filters)->SearchResult".
-    # I implemented `def search(self, query: str, limit: int = 20):` without filters in Service.
-    # I should update Service to accept filters if I want to keep filters working.
-    # For now, let's keep UI simple or fix Service. 
-    # Prompt said: "def search(self, query: str, limit: int = 20)" in the code block example.
-    # But filters are mentioned in "wyniki zawierają...". 
-    # I'll stick to the Prompt's class definition which missed filters arg, OR I'll add it.
-    # Adding it is safer for "Expert" grade.
-    
+        
+    with c_filter:
+        st.write("") # Spacer
+        include_semantic = st.checkbox("Include semantic results", value=False, help="If unchecked, only text matches will be shown.")
+
     # --- Results ---
     results = [] # Type: List[SearchEvidence]
     
     if query:
         # Call Service (Entry Point)
-        # Note: My service currently doesn't accept filters. I'll just pass query/limit.
-        results = search_service.search(query, limit=50)
+        raw_results = search_service.search(query, limit=100, include_semantic=include_semantic)
+        
+        # --- Grouping Logic (UX Improvement) ---
+        grouped_results = {} # path -> {primary: SearchEvidence, literals: List[SearchEvidence], semantic: List[SearchEvidence]}
+        seen_contents = set() # For deduplication
+        
+        for ev in raw_results:
+            # Simple content-based deduplication per file
+            content_hash = f"{ev.source_path}:{ev.snippet}"
+            if content_hash in seen_contents:
+                continue
+            seen_contents.add(content_hash)
+            
+            # Check if literal (was flagged in retriever or check again)
+            # Use backend truth
+            is_lit = ev.is_literal
+            # Or match_type checks? 
+            # match_type can be 'hybrid', 'fts', 'vector'
+            
+            if ev.source_path not in grouped_results:
+                grouped_results[ev.source_path] = {"primary": ev, "literals": [], "semantic": []}
+            
+            # Determine which list it goes to based on is_lit
+            # Note: A hybrid chunk is both literal and semantic usually, but if it has bold tags it's literal enough.
+            if is_lit:
+                grouped_results[ev.source_path]["literals"].append(ev)
+            else:
+                grouped_results[ev.source_path]["semantic"].append(ev)
+                
+            # Update primary to highest score
+            if ev.score > grouped_results[ev.source_path]["primary"].score:
+                 grouped_results[ev.source_path]["primary"] = ev
+        
+        # Sort files by highest primary score
+        results = sorted(list(grouped_results.values()), key=lambda x: x["primary"].score, reverse=True)
             
     if not results and query:
         st.info("No results found.")
     elif not query:
         st.info("Type something to search...")
-        # Don't return, render empty state creates cleaner layout
 
     # --- Results Layout ---
     col_res, col_prev = st.columns([2, 3])
@@ -113,29 +135,82 @@ def render(app_state: AppState):
     
     with col_res:
         if results:
-            st.caption(f"Found {len(results)} results")
-            # Mode?
-            # evidence has search_mode now.
-            mode = results[0].search_mode if results else "Unknown"
-            st.caption(f"Mode: {mode}")
+            st.caption(f"Found matches across {len(results)} files")
             
-            with st.container():
-                for i, ev in enumerate(results):
-                    # Evidence Card
-                    snippet = ev.snippet.replace("<b>", "**").replace("</b>", "**")
+            for i, group in enumerate(results):
+                primary_ev = group["primary"]
+                literals = group["literals"]
+                semantics = group["semantic"]
+                
+                label = f"{i+1}. {os.path.basename(primary_ev.source_path)}"
+                counts = []
+                
+                # Use total count from backend for literal truth
+                lit_hits = primary_ev.keyword_hits_in_file 
+                lit_chunks = primary_ev.keyword_chunks_in_file
+                
+                sem_count = len(semantics)
+                
+                if lit_hits > 0: 
+                    counts.append(f"{lit_hits} keyword matches")
+                elif lit_chunks > 0:
+                    counts.append(f"{lit_chunks} keyword chunks")
+                
+                if sem_count > 0: counts.append(f"{sem_count} related")
+                
+                if counts:
+                    label += f" ({', '.join(counts)})"
                     
-                    with st.expander(f"{i+1}. {os.path.basename(ev.source_path)}", expanded=False):
-                        st.markdown(f"`{ev.source_path}`")
-                        st.markdown(f"_{snippet}_")
-                        st.caption(f"Score: {ev.score} | Mode: {ev.search_mode}")
+                with st.expander(label, expanded=(i==0)):
+                    st.caption(f"Path: `{primary_ev.source_path}`")
+                    
+                    # Show Literal Matches First (Top 5 to avoid spam)
+                    if literals:
+                        st.markdown("**Top Keyword Matches:**")
+                        # Content preview: Trust the snippet from backend (FTS) or raw text
+                        # Auditor P2: Do NOT apply regex highlighting here to avoid misleading "matches" 
+                        # that weren't actually found by FTS.
+                        display_lits = literals[:5]
+                        for j, ev in enumerate(display_lits):
+                            # Replace <b> with markdown bold or custom HTML
+                            
+                            inner_col1, inner_col2 = st.columns([4, 1])
+                            with inner_col1:
+                                 st.markdown(f"_{ev.snippet}_")
+                            with inner_col2:
+                                 if st.button("Preview", key=f"prev_lit_{i}_{j}_{ev.artifact_id}"):
+                                     st.session_state["search_selected_id"] = ev.artifact_id
                         
-                        if st.button("Preview", key=f"prev_{ev.artifact_id}"):
-                            st.session_state["search_selected_id"] = ev.artifact_id
+                        if len(literals) > 5:
+                            st.caption(f"Showing 5 of {len(literals)} chunks. Click Preview to see full document highlights.")
+                            
+                        if semantics: st.divider()
 
+                    # Show Semantic Matches
+                    if semantics:
+                        st.markdown("**Semantic Recommendations:**")
+                        display_sems = semantics[:3]
+                        for j, ev in enumerate(display_sems):
+                            snippet = ev.snippet.replace("<b>", "**").replace("</b>", "**")
+                            inner_col1, inner_col2 = st.columns([4, 1])
+                            with inner_col1:
+                                 st.markdown(f"_{snippet}_")
+                            with inner_col2:
+                                 if st.button("Preview", key=f"prev_sem_{i}_{j}_{ev.artifact_id}"):
+                                     st.session_state["search_selected_id"] = ev.artifact_id
+                        
+                        if len(semantics) > 3:
+                             st.caption(f"and {len(semantics)-3} more semantic matches...")
+                                     
     # Check selection
     sel_id = st.session_state.get("search_selected_id")
     if sel_id and results:
-        selected_evidence = next((r for r in results if r.artifact_id == sel_id), None)
+        # Search in all groups
+        all_ev = []
+        for g in results:
+            all_ev.extend(g["literals"])
+            all_ev.extend(g["semantic"])
+        selected_evidence = next((ev for ev in all_ev if ev.artifact_id == sel_id), None)
         
     with col_prev:
         if selected_evidence:
@@ -157,15 +232,23 @@ def render(app_state: AppState):
                     # Highlighting (Case Insensitive)
                     if query and content_to_show:
                         import re
-                        # Escape query for regex
-                        pattern = re.compile(re.escape(query), re.IGNORECASE)
-                        # Highlight with yellow background using HTML in Markdown
-                        # Note: extensive HTML might slow down large texts
-                        # Using Streamlit :background[text] syntax (newer) or HTML
-                        highlighted = pattern.sub(lambda m: f"**:{'orange'}[{m.group(0)}]**", content_to_show)
+                        # P2.4: Tokenize query and highlight individual tokens (OR logic)
+                        # Split by whitespace, filter empty
+                        tokens = [t for t in re.split(r"\s+", query.strip()) if t]
                         
-                        st.markdown("### Content Preview (Highlighted)")
-                        st.markdown(highlighted)
+                        if tokens:
+                             # Escape each token and join with |
+                             pattern_str = "|".join([re.escape(t) for t in tokens])
+                             pattern = re.compile(pattern_str, re.IGNORECASE)
+                             
+                             # Highlight with yellow background using HTML in Markdown
+                             # Using Streamlit :background[text] syntax (newer) or HTML
+                             highlighted = pattern.sub(lambda m: f"**:{'orange'}[{m.group(0)}]**", content_to_show)
+                             
+                             st.markdown("### Content Preview (Highlighted)")
+                             st.markdown(highlighted)
+                        else:
+                             st.code(content_to_show)
                     else:
                         st.code(content_to_show)
                         

@@ -1,17 +1,21 @@
 
+import sys
+from pathlib import Path
+
+# Fix PYTHONPATH for CI/tests to find 'app' package
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import os
 import pytest
-import logging
+from unittest.mock import patch
 
 @pytest.fixture(autouse=True)
-def shutdown_logging_teardown():
-    """
-    Force shutdown of logging handlers to release file locks on Windows.
-    This prevents PermissionError during tmp_path cleanup.
-    """
-    yield
-    # Aggressively close handlers
-    root = logging.getLogger()
-    for h in root.handlers[:]:
-        h.close()
-        root.removeHandler(h)
-    logging.shutdown()
+def mock_env_vars():
+    """Globally mock essential ENV vars for all tests to prevent API Key errors."""
+    with patch.dict(os.environ, {
+        "GEMINI_API_KEY": "test_key",
+        "PROJECT_COPILOT_ENV": "TEST"
+    }):
+        yield

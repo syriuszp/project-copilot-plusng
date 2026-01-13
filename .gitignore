@@ -228,10 +228,35 @@ Thumbs.db
 .venv/
 dev_data/
 
-# secrets
+# --- Security (ABSOLUTELY DO NOT COMMIT) ---
 .env
+.env.*
+# secrets
 config/secrets.local.json
+*.env
 *.local.json
+
+# local db
+*.db
+data/**/*.db
+**/*.db
+db_schema.sql
+
+# faiss cache
+data/index/*.index
+data/index/*.mapping.json
+
+# pytest
+.pytest_cache/
+test_*.db
+**/secrets.local.json
+*.local.json
+secrets.json
+credentials.json
+key.json
+*.pem
+*.key
+
 
 # python build artifacts
 dist/

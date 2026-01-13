@@ -1,13 +1,13 @@
-﻿# Development Environment Overrides
-env: DEV
-
+﻿env: DEV
 paths:
   db_path: dev_data/db/project_copilot.dev.db
   ingest_dir: dev_data/ingest
   processed_dir: dev_data/processed
+  index: dev_data/index
   logs_dir: dev_data/logs
-
 features:
-  # Enable OCR in DEV for testing (will fallback if binary missing)
   extraction:
-    ocr: true
+    ocr:
+      enabled: true
+      tesseract_path: tools/tesseract/tesseract.exe
+    images: true

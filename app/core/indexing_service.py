@@ -1,11 +1,22 @@
 
 import os
 import logging
+import time
+import json
 from pathlib import Path
 from typing import Dict, Any, List
 
 from app.core.artifacts_repo import ArtifactsRepo
 from app.core.extractors.registry import ExtractorRegistry
+
+# Semantic Components
+from app.core.chunking.repository import ChunkingRepository
+from app.core.chunking.service import ChunkingService
+from app.core.embeddings.repository import EmbeddingRepository
+from app.core.embeddings.service import EmbeddingService
+from app.core.vector.faiss_index import VectorStore
+from app.core.insights.repository import InsightRepository
+from app.core.insights.engine import InsightEngine
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +30,44 @@ class IndexingService:
              logger.warning("IndexingService initialized without 'paths' in config. External tools location (OCR) might fail.")
              
         self.registry = ExtractorRegistry(config)
+        
+        # Initialize Semantic Pipeline
+        paths_cfg = self.config.get("paths", {})
+        # Robust resolution: check db_path (new), db (legacy), default
+        db_rel = paths_cfg.get("db_path") or paths_cfg.get("db") or "data/project_copilot.db"
+        
+        # FIX: Prioritize repo's DB path if available (Essential for tests using temp DB)
+        if hasattr(self.repo, "db_path") and self.repo.db_path:
+             db_path = str(Path(self.repo.db_path).resolve())
+        else:
+             db_path = str(Path(db_rel).resolve())
+        index_dir = self.config.get("paths", {}).get("index", "data/index")
+        
+        # Ensure data directories exist logic is usually elsewhere, but safe to assume app limits.
+        # We need absolute path for DB if sqlite3 requires it or relative to CWD.
+        # ArtifactsRepo likely handles DB connection string, but our new repos take path.
+        # Let's assume db_path is correct or passed from config.
+        
+        self.chunk_repo = ChunkingRepository(db_path)
+        self.chunk_service = ChunkingService(self.chunk_repo)
+        
+        self.emb_repo = EmbeddingRepository(db_path)
+        self.emb_service = EmbeddingService(self.emb_repo, self.config)
+        
+        self.vector_store = VectorStore(index_dir)
+        
+        self.insight_repo = InsightRepository(db_path)
+        self.insight_engine = InsightEngine(db_path, self.insight_repo)
 
-    def index_file(self, path: str) -> str:
+    def index_file(self, path: str, run_id: str = "legacy") -> str:
         """
         Indexes a single file. Returns status (indexed/failed/not_extractable/skipped).
+        Triggers Semantic Pipeline (Chunk -> Embed).
         """
+        t_start = time.perf_counter()
+        
         if not os.path.exists(path):
             return "failed" # File removed during index
-
             
         try:
             p = Path(path)
@@ -49,11 +90,6 @@ class IndexingService:
                 "sha256": sha
             }
             
-            # Check if updated (optimization: skip extraction if size/mtime match?)
-            # Repo upsert handles conflict, but we might want to check DB first to save extraction?
-            # For P0 idempotent: always extract or check inside upsert logic logic.
-            # artifacts_repo.upsert updates timestamp.
-            
             artifact_id = self.repo.upsert_artifact(meta)
             
             # 2. Extract Text
@@ -65,13 +101,9 @@ class IndexingService:
                 return "not_extractable"
                 
             try:
+                t_extract_start = time.perf_counter()
                 result = extractor.extract(str(p))
-                
-                # Update contract usage: result should match ExtractResult
-                # content -> text
-                # But current existing extractors might use .content
-                # We will update extractors/models.py next.
-                # For now assume .content is the text field or mapped.
+                t_extract = time.perf_counter() - t_extract_start # Measure Extract
                 
                 text_content = getattr(result, "text", None) or getattr(result, "content", None)
                 
@@ -85,10 +117,41 @@ class IndexingService:
                         meta["path"],
                         extracted_at=result.metadata.get("extracted_at")
                     )
+                    
+                    # --- SEMANTIC PIPELINE START ---
+                    # 3. Chunk
+                    t_chunk_start = time.perf_counter()
+                    active_chunks = self.chunk_service.process_artifact(
+                        str(artifact_id), 
+                        run_id, 
+                        text_content, 
+                        metadata={"page_count": getattr(result, "page_count", None)}
+                    )
+                    t_chunk = time.perf_counter() - t_chunk_start
+                    
+                    # 4. Embed (Active Chunks)
+                    t_embed_start = time.perf_counter()
+                    missing_count, skipped_count = self.emb_service.embed_chunks(active_chunks)
+                    t_embed = time.perf_counter() - t_embed_start
+                    # --- SEMANTIC PIPELINE END ---
+                    
+                    t_total = time.perf_counter() - t_start
+                    metrics = {
+                        "op": "index_file",
+                        "index_run_id": run_id,
+                        "artifact_id": str(artifact_id),
+                        "chunks_active": len(active_chunks),
+                        "embeddings_created": missing_count,
+                        "embeddings_skipped": skipped_count,
+                        "time_extract": round(t_extract, 4),
+                        "time_chunk": round(t_chunk, 4),
+                        "time_embed": round(t_embed, 4),
+                        "time_total": round(t_total, 4)
+                    }
+                    logger.info(json.dumps(metrics))
+                    
                     return "indexed"
                 else:
-                    # If content is None, it might be failed or not_extractable
-                    # Check error
                     if result.error:
                         self.repo.set_index_status(artifact_id, "failed", result.error)
                         return "failed"
@@ -100,11 +163,9 @@ class IndexingService:
                 logger.error(f"Extraction exception for {path}: {e}")
                 self.repo.set_index_status(artifact_id, "failed", str(e))
                 return "failed"
-
                 
         except Exception as e:
             logger.error(f"Indexing error for {path}: {e}")
-            # If we have artifact_id we can set status, else just log
             return "failed"
 
 
@@ -112,20 +173,13 @@ class IndexingService:
         """
         Scans directory and compares with DB to determine status.
         Returns list of file metadata including calculated 'status'.
-        Statuses: NEW, DIRTY, INDEXED, FAILED, NOT_EXTRACTABLE
-        Strict Logic: 
-        - NEW: Not in DB.
-        - DIRTY: mtime/size mismatch.
-        - INDEXED/FAILED: From DB.
         """
         results = []
         if not os.path.exists(ingest_dir):
             return results
 
         # 1. Get DB State
-        # Fetch all paths and timestamps/sizes in chunks
         chunk_size = self.config.get("indexing", {}).get("db_path_chunk_size", 500)
-        # Safeguard: max(50, min(chunk_size, 1000))
         if not isinstance(chunk_size, int): chunk_size = 500
         chunk_size = max(50, min(chunk_size, 1000))
         
@@ -172,39 +226,20 @@ class IndexingService:
                     else:
                         db_rec = db_artifacts[str(p)]
                         
-                        # Compare time/size
-                        # Provide default 0.0 for None to ensure comparison works
                         db_mtime = float(db_rec.get('modified_at') or 0.0)
                         db_size = int(db_rec.get('size_bytes') or 0)
                         
-                        # Mtime tolerance (0.1s for filesystem jitter)
                         is_dirty = (abs(db_mtime - fs_meta['modified_at']) > 0.1) or (db_size != fs_meta['size_bytes'])
                         
                         if is_dirty:
                              fs_meta["status"] = "DIRTY"
                              fs_meta["id"] = db_rec.get('id')
-                             
-                             # DEBUG DIRTY REASON
-                             diff = abs(db_mtime - fs_meta['modified_at'])
-                             size_diff = db_size != fs_meta['size_bytes']
-                             logger.warning(f"DIRTY DETECTED: {p.name} | Diff: {diff:.6f} | SizeDiff: {size_diff} | DB_time: {db_mtime} | FS_time: {fs_meta['modified_at']} | DB_size: {db_size} | FS_size: {fs_meta['size_bytes']}")
-                             
                              results.append(fs_meta)
                         else:
-                             # Use DB status. 
-                             # If DB status is missing for some reason, default to UNKNOWN?
-                             # Or if 'new' in DB (upserted but not indexed), treat as NEW for UI?
-                             # In Strict mode, DB 'new' means pending.
-                             # If we handle "NEW" badge here as "FS New", maybe allow "PENDING"?
-                             # Requirement says: NEW / DIRTY / INDEXED / FAILED.
-                             # If DB says 'new', it technically isn't NEW (FS-only), but "Not Indexed".
-                             # Let's map 'new' -> 'NEW' for UI consistency?
-                             # Or strict DB status.
                              status = db_rec.get('ingest_status', 'new').lower()
                              
-                             # Map to UI Badges
                              if status == 'new':
-                                 fs_meta["status"] = "NEW" # Treat pending as NEW
+                                 fs_meta["status"] = "NEW" 
                              elif status == 'failed':
                                  fs_meta["status"] = "FAILED"
                              elif status == 'indexed':
@@ -230,11 +265,65 @@ class IndexingService:
         all_files = self.scan_workspace(ingest_dir)
         return [f for f in all_files if f.get("status") in ("NEW", "DIRTY")]
 
+    def index_paths(self, paths: List[str]) -> Dict[str, Any]:
+        """
+        Public Batch Entrypoint: Indexes multiple files under one index_run_id 
+        and finalizes semantic pipeline (Embed + Insights) exactly once.
+        """
+        import uuid
+        
+        run_id = str(uuid.uuid4())
+        results = [] # List of (path, status)
+        
+        logger.info(f"Batch Indexing Started: run_id={run_id}, count={len(paths)}")
+        
+        for p in paths:
+             status = self.index_file(p, run_id=run_id)
+             results.append((p, status))
+             
+        # Critical: Finalize Semantic Pipeline (Insights + Vector Index)
+        self._finalize_run(run_id)
+        
+        logger.info(f"Batch Indexing Completed: run_id={run_id}")
+
+        # Calculate stats for recording
+        stats = {"indexed": 0, "failed": 0, "skipped": 0, "not_extractable": 0}
+        for _, status in results:
+            if status in stats:
+                stats[status] += 1
+            elif status == "indexed":
+                stats["indexed"] += 1
+            else:
+                stats["failed"] += 1
+
+        # Optional: Record run in DB if supported
+        try:
+             import datetime
+             if hasattr(self.repo, "record_index_run"):
+                 self.repo.record_index_run({
+                    "run_id": run_id,
+                    "started_at": datetime.datetime.now().isoformat(), # Approximate
+                    "ended_at": datetime.datetime.now().isoformat(),
+                    "env": os.environ.get("PROJECT_COPILOT_ENV", "UNKNOWN"),
+                    "ingest_dir": "BATCH_UI_UPDATE",
+                    "files_seen": len(paths),
+                    "files_indexed": stats["indexed"],
+                    "files_failed": stats["failed"],
+                    "files_not_extractable": stats["not_extractable"]
+                 })
+        except Exception as e:
+            logger.warning(f"Failed to record batch run: {e}")
+        
+        return {
+            "index_run_id": run_id, 
+            "results": results,
+            "count": len(paths),
+            **stats
+        }
+
     def index_all(self, ingest_dir: str) -> Dict[str, int]:
         """
         Indexes all files in ingest_dir.
-        Returns counts: {'indexed': N, 'failed': M, ...}
-        Records run telemetry.
         """
         import uuid
         import datetime
@@ -243,26 +332,22 @@ class IndexingService:
         started_at = datetime.datetime.now().isoformat()
         results = {"indexed": 0, "failed": 0, "not_extractable": 0, "skipped": 0}
         
-        # Scan first? Or just iterate?
-        # index_all usually implies re-indexing everything or just "Make it right"?
-        # User goal: "Index Needed" button processes ONLY NEW/DIRTY.
-        # "Index All" usually means "Index Everything".
-        # But efficiently?
-        # Let's keep index_all simple: iterate and index. index_file logic updates DB.
-        
         if not os.path.exists(ingest_dir):
             return results
             
         files_count = 0
         for entry in os.scandir(ingest_dir):
             if entry.is_file():
-                status = self.index_file(entry.path)
+                # Pass run_id
+                status = self.index_file(entry.path, run_id=run_id)
                 results[status] = results.get(status, 0) + 1
                 files_count += 1
                 
+        # Finalize Pipeline
+        self._finalize_run(run_id)
+                
         ended_at = datetime.datetime.now().isoformat()
         
-        # Record Run
         try:
             self.repo.record_index_run({
                 "run_id": run_id,
@@ -277,15 +362,30 @@ class IndexingService:
             })
         except Exception as e:
             logger.error(f"Failed to record index run: {e}")
+            
+        # [FINAL-P1] Log Metrics
+        logger.info(f"Indexing Run Complete. run_id={run_id} files={files_count} indexed={results.get('indexed', 0)} failed={results.get('failed', 0)}")
                 
         return results
+
+    def _finalize_run(self, run_id: str):
+        """Rebuild Vector Index and Generate Insights."""
+        try:
+            # Rebuild Index (MVP: All Active)
+            model_id = self.emb_service.model_id
+            fingerprint = self.emb_repo.get_embeddings_fingerprint(model_id)
+            self.vector_store.upsert_or_rebuild(self.chunk_repo.db_path, model_id, fingerprint)
+            
+            # Insights
+            self.insight_engine.run(run_id)
+        except Exception as e:
+            logger.error(f"Semantic Pipeline Finalize Failed: {e}")
 
     def _calculate_sha256(self, path: Path) -> str:
         import hashlib
         try:
             sha256_hash = hashlib.sha256()
             with open(path, "rb") as f:
-                # Read key block to be efficient with memory
                 for byte_block in iter(lambda: f.read(4096), b""):
                     sha256_hash.update(byte_block)
             return sha256_hash.hexdigest()
