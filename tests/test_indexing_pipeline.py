@@ -39,6 +39,9 @@ def test_indexing_service_triggers_full_semantic_pipeline(mock_indexing_service)
     mock_extractor = MagicMock()
     mock_extractor.extract.return_value.text = "Sample content"
     mock_indexing_service.registry.get.return_value = mock_extractor
+
+    # FIX: mock_emb_service.embed_chunks returns tuple (missing, skipped)
+    mock_indexing_service.mock_emb_service.embed_chunks.return_value = (0, 0)
     
     # Mock FS
     with patch("os.path.exists", return_value=True), \
@@ -59,6 +62,7 @@ def test_indexing_service_triggers_full_semantic_pipeline(mock_indexing_service)
         mock_indexing_service._finalize_run("run_1")
         
         # Verify Vector Build
-        mock_indexing_service.mock_vector_store.rebuild_from_db.assert_called()
+        # Code now calls upsert_or_rebuild
+        mock_indexing_service.mock_vector_store.upsert_or_rebuild.assert_called()
         # Verify Insights
         mock_indexing_service.mock_insight_engine.run.assert_called_with("run_1")

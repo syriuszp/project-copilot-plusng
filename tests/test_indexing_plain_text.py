@@ -21,8 +21,16 @@ def repo(db_path):
     return ArtifactsRepo(db_path)
 
 @pytest.fixture
-def indexer(repo):
-    return IndexingService(repo)
+def indexer(repo, tmp_path):
+    # Use temp index dir to avoid polluting prod/repo data
+    index_dir = tmp_path / "test_index"
+    # Use local provider to avoid API calls with mock key
+    config = {
+        "paths": {"index": str(index_dir)}, 
+        "features": {},
+        "embeddings": {"provider": "local"}
+    } 
+    return IndexingService(repo, config)
 
 def test_index_plain_text(indexer, repo, tmp_path):
     # Create dummy file

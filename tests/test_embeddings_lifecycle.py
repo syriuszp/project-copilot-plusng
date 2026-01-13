@@ -42,8 +42,12 @@ def test_gemini_provider_requires_api_key():
     with patch.dict(os.environ, {}, clear=True):
         # Ensure no secrets file (mock open)
         with patch("pathlib.Path.exists", return_value=False):
-            with pytest.raises(ValueError, match="Missing GEMINI_API_KEY"):
-                GeminiEmbeddingProvider()
+            # Provider should init fine (permissive/mock support)
+            provider = GeminiEmbeddingProvider()
+            
+            # But fail on usage
+            with pytest.raises(ValueError, match="API Key missing"):
+                provider.embed_text(["test"])
 
 def test_provider_selection_defaults_to_gemini():
     """Test Service config logic."""

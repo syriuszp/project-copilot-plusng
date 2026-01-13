@@ -52,7 +52,10 @@ def test_fts_always_ranks_above_vector():
     # Rank 1: FTS
     assert results[0].chunk_id == "chunk_f"
     assert results[0].source == "fts"
-    assert results[0].score >= 1.0
+    # With new weighting (0.7 FTS + 0.3 Vec), FTS score might be 0.7 + 0 = 0.7 if only FTS used.
+    # Current implementation ensures FTS > semantic threshold (0.3).
+    # so > 0.3 is strict requirement.
+    assert results[0].score >= 0.7
     
     # Rank 2: Vector
     assert results[1].chunk_id == "chunk_v"

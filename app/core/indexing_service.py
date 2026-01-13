@@ -35,7 +35,12 @@ class IndexingService:
         paths_cfg = self.config.get("paths", {})
         # Robust resolution: check db_path (new), db (legacy), default
         db_rel = paths_cfg.get("db_path") or paths_cfg.get("db") or "data/project_copilot.db"
-        db_path = str(Path(db_rel).resolve()) # Use absolute path for safety
+        
+        # FIX: Prioritize repo's DB path if available (Essential for tests using temp DB)
+        if hasattr(self.repo, "db_path") and self.repo.db_path:
+             db_path = str(Path(self.repo.db_path).resolve())
+        else:
+             db_path = str(Path(db_rel).resolve())
         index_dir = self.config.get("paths", {}).get("index", "data/index")
         
         # Ensure data directories exist logic is usually elsewhere, but safe to assume app limits.

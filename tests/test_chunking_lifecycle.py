@@ -109,6 +109,24 @@ def test_chunks_fts_excludes_inactive_chunks(repo):
     # Check if that rowid exists in FTS
     # FTS rowid maps to chunk_rowid
     # We can join or just select from chunks_fts where rowid = ?
-    assert conn.execute("SELECT count(*) FROM chunks_fts WHERE rowid=?", (inactive_rowid,)).fetchone()[0] == 0
+    # FTS5 External Content table returns rows from underlying table if queried directly.
+    # To verify DELETION from INDEX, we must ensure MATCH does not return this rowid.
+    
+    # Query for "World" (present in both v1 and v2)
+    # It should match v2 (active).
+    # It should NOT match v1 (inactive/deleted from index).
+    match_results = conn.execute("SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'World'").fetchall()
+    matched_rowids = [r[0] for r in match_results]
+    
+    assert inactive_rowid not in matched_rowids
+    assert len(matched_rowids) == 1 # Only v2
+    
+    # Verify exact match for text unique to v1 if it existed, or just rely on rowid exclusion
+    # v1 "Hello World." vs v2 "Hello World Modified."
+    # If we searched "Modified", we get v2 (checked above).
+    # "Hello" -> both.
+    
+    # Double check: Search for something that shouldn't be valid for v2 if possible? 
+    # v1 is subset of v2 here, so hard. Rowid check is sufficient.
 
     conn.close()

@@ -18,7 +18,8 @@ def db_path(tmp_path):
 
 def test_search_service_contract(db_path, tmp_path):
     repo = ArtifactsRepo(db_path)
-    service = SearchService(repo)
+    config = {"features": {}} # Minimal mock config
+    service = SearchService(repo, config)
     
     # 1. Insert directly for speed
     meta = {"path": "/tmp/a.txt", "filename": "contract.txt", "ext": ".txt"}
@@ -55,7 +56,7 @@ def test_fts_fallback_simulation(db_path, monkeypatch):
     repo = ArtifactsRepo(db_path)
     assert not repo.fts_enabled # Fallback active
     
-    service = SearchService(repo)
+    service = SearchService(repo, config={"features": {}})
     
     # Insert data
     meta = {"path": "/tmp/fallback.txt", "filename": "fallback.txt", "ext": ".txt"}
