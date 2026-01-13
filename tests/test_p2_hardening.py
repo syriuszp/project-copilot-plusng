@@ -229,17 +229,23 @@ def test_hybrid_ranking_is_deterministic(tmp_path):
     # B: FTS only. sim=0.6. Source=fts.
     # C: Hybrid. max(0.8, 0.6) + 0.05 = 0.85. Source=hybrid.
     
+    # Updated Expectations for Epic 4 (FTS Priority):
+    # w_fts=0.7, w_vec=0.3
+    # B (FTS): 0.7 * 1.0 = 0.7
+    # A (Vec): 0.3 * 1.0 = 0.3
+    # C (Hybrid): 0.7 + 0.3 = 1.0
+    # Order: C, B, A
+    
     assert len(results) == 3
     assert results[0].chunk_id == "C"
     assert results[0].source == "hybrid"
-    assert results[0].score > results[1].score
     
-    assert results[1].chunk_id == "A"
-    assert results[1].source == "vector"
+    assert results[1].chunk_id == "B"
+    assert results[1].source == "fts"
     assert results[1].score > results[2].score
     
-    assert results[2].chunk_id == "B"
-    assert results[2].source == "fts"
+    assert results[2].chunk_id == "A"
+    assert results[2].source == "vector"
     assert results[2].score == 0.6
 
 from scripts.db_housekeeping import list_legacy_tables, drop_legacy_tables

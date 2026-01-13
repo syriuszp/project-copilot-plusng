@@ -30,21 +30,20 @@ def apply_migrations(conn):
     conn.commit()
 
 @pytest.fixture
-def env():
-    if TEST_DB_PATH.exists(): os.remove(TEST_DB_PATH)
-    if TEST_INDEX_DIR.exists(): shutil.rmtree(TEST_INDEX_DIR)
+def env(tmp_path):
+    # Use Pytest tmp_path for isolation instead of fixed root paths
+    db_path = tmp_path / "test_retrieval.db"
+    index_dir = tmp_path / "test_indices"
     
-    conn = sqlite3.connect(str(TEST_DB_PATH))
+    # Initialize Schema
+    conn = sqlite3.connect(str(db_path))
     apply_migrations(conn)
     conn.close()
     
     yield {
-        "db": str(TEST_DB_PATH),
-        "index": str(TEST_INDEX_DIR)
+        "db": str(db_path),
+        "index": str(index_dir)
     }
-    
-    if TEST_DB_PATH.exists(): os.remove(TEST_DB_PATH)
-    if TEST_INDEX_DIR.exists(): shutil.rmtree(TEST_INDEX_DIR)
 
 def setup_data(env_paths, chunks_data, embeddings_data, model_id="m1"):
     """Populates DB with chunks and embeddings."""

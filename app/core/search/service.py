@@ -29,12 +29,17 @@ class SearchService:
         
         self.retriever = HybridRetriever(db_path, self.vector_store, self.emb_service)
 
-    def search(self, query: str, limit: int = 20, include_semantic: bool = True) -> List[SearchEvidence]:
+    def search(self, query: str, limit: int = 20, include_semantic: bool = None) -> List[SearchEvidence]:
         """
         Searches artifacts using Hybrid Retrieval (Vector + FTS on Chunks).
         """
         if not query.strip():
             return []
+
+        # Determine semantic search usage
+        if include_semantic is None:
+            config_features = self.config.get("features", {})
+            include_semantic = config_features.get("semantic_search", True)
             
         retrieved_chunks = self.retriever.search(query, top_k=limit, include_semantic=include_semantic)
         

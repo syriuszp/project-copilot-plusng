@@ -109,6 +109,11 @@ class HybridRetriever:
             rows = cursor.fetchall()
         except sqlite3.OperationalError:
             # Fallback for syntax errors
+            conn.close()
+            return []
+        except Exception:
+            # Catch all DB errors to ensure we don't leak
+            conn.close()
             return []
             
         chunks = []
@@ -267,25 +272,25 @@ class HybridRetriever:
     def _fetch_chunks(self, chunk_ids: List[str]) -> Dict[str, RetrievedChunk]:
         """Helper to load chunks by ID for vector results."""
         if not chunk_ids: return {}
-        conn = self._get_conn()
-        conn.row_factory = sqlite3.Row
-        placeholders = ",".join(["?"] * len(chunk_ids))
-        cursor = conn.execute(f"""
-            SELECT chunk_id, content_text, page, slide, section, bbox
-            FROM chunks WHERE chunk_id IN ({placeholders}) AND is_active = 1
-        """, chunk_ids)
-        
-        res = {}
-        for row in cursor.fetchall():
-            res[row['chunk_id']] = RetrievedChunk(
-                chunk_id=row['chunk_id'],
-                score=0.0,
-                snippet=row['content_text'][:200], # Naive snippet
-                locator={
-                    "page": row['page'], "slide": row['slide'], "section": row['section'], "bbox": row['bbox']
-                },
-                source='vector',
-                match_type='vector'
-            )
-        conn.close()
+        from contextlib import closing
+        with closing(self._get_conn()) as conn:
+            conn.row_factory = sqlite3.Row
+            placeholders = ",".join(["?"] * len(chunk_ids))
+            cursor = conn.execute(f"""
+                SELECT chunk_id, content_text, page, slide, section, bbox
+                FROM chunks WHERE chunk_id IN ({placeholders}) AND is_active = 1
+            """, chunk_ids)
+            
+            res = {}
+            for row in cursor.fetchall():
+                res[row['chunk_id']] = RetrievedChunk(
+                    chunk_id=row['chunk_id'],
+                    score=0.0,
+                    snippet=row['content_text'][:200], # Naive snippet
+                    locator={
+                        "page": row['page'], "slide": row['slide'], "section": row['section'], "bbox": row['bbox']
+                    },
+                    source='vector',
+                    match_type='vector'
+                )
         return res

@@ -43,20 +43,20 @@ class VectorStore:
         Wipes existing index/mapping and rebuilds from DB embeddings.
         ONLY includes is_active=1 chunks.
         """
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Join with chunks to filter active
-        cursor.execute("""
-            SELECT e.chunk_id, e.vector, e.dim 
-            FROM chunk_embeddings e
-            JOIN chunks c ON e.chunk_id = c.chunk_id
-            WHERE e.model_id = ? AND c.is_active = 1
-            ORDER BY c.created_at ASC
-        """, (model_id,))
-        
-        rows = cursor.fetchall()
-        conn.close()
+        from contextlib import closing
+        with closing(sqlite3.connect(db_path)) as conn:
+            cursor = conn.cursor()
+            
+            # Join with chunks to filter active
+            cursor.execute("""
+                SELECT e.chunk_id, e.vector, e.dim 
+                FROM chunk_embeddings e
+                JOIN chunks c ON e.chunk_id = c.chunk_id
+                WHERE e.model_id = ? AND c.is_active = 1
+                ORDER BY c.created_at ASC
+            """, (model_id,))
+            
+            rows = cursor.fetchall()
         
         if not rows:
             # Empty index
