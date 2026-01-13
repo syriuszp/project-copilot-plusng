@@ -62,7 +62,8 @@ def test_index_paths_generates_insights(env_setup):
             "db_path": str(TEST_DB_PATH),
             "index": str(REPO_ROOT / "test_index_vis")
         },
-        "indexing": {}
+        "indexing": {},
+        "embeddings": {"provider": "local"}
     }
     service = IndexingService(repo_artifacts, config)
     

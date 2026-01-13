@@ -18,13 +18,22 @@ def db_path(tmp_path):
 
 def test_search_service_contract(db_path, tmp_path):
     repo = ArtifactsRepo(db_path)
-    config = {"features": {}} # Minimal mock config
+    config = {"features": {"semantic_search": False}} # Minimal mock config, disable semantic to avoid API calls
     service = SearchService(repo, config)
     
     # 1. Insert directly for speed
     meta = {"path": "/tmp/a.txt", "filename": "contract.txt", "ext": ".txt"}
     aid = repo.upsert_artifact(meta)
-    repo.save_extracted_text(aid, "Contract content here.", "Plain", 20, "contract.txt", "/tmp/a.txt")
+    
+    # Populate Chunks (Required for SearchService/HybridRetriever)
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO chunks (chunk_id, artifact_id, index_run_id, content_text, chunk_type, hash, position_index, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                 ("c1", str(aid), "r1", "Contract content here.", "text", "h1", 0, 1))
+    # Sync FTS (External Content Table needs manual sync if NO triggers, but triggers might exist?)
+    # App defines triggers? No, Repository does it manually.
+    conn.execute("INSERT INTO chunks_fts (rowid, content_text) VALUES ((SELECT chunk_rowid FROM chunks WHERE chunk_id='c1'), 'Contract content here.')")
+    conn.commit()
+    conn.close()
     
     # 2. Search
     results = service.search("Contract")
@@ -43,33 +52,5 @@ def test_search_service_contract(db_path, tmp_path):
     assert "Contract" in ev.snippet
     assert ev.search_mode in ["FTS", "LIKE"]
 
-def test_fts_fallback_simulation(db_path, monkeypatch):
-    """
-    Simulate FTS failure/unavailability and ensure LIKE works via Service.
-    """
-    # Force disable FTS on repo
-    def mock_init_no_fts(self):
-        self._fts_enabled = False
-    
-    monkeypatch.setattr(ArtifactsRepo, '_check_and_init_fts', mock_init_no_fts)
-    
-    repo = ArtifactsRepo(db_path)
-    assert not repo.fts_enabled # Fallback active
-    
-    service = SearchService(repo, config={"features": {}})
-    
-    # Insert data
-    meta = {"path": "/tmp/fallback.txt", "filename": "fallback.txt", "ext": ".txt"}
-    aid = repo.upsert_artifact(meta)
-    repo.save_extracted_text(aid, "Some fallback content.", "Plain", 20, "fallback.txt", "/tmp/fallback.txt")
-    
-    # Search
-    results = service.search("content") # Should match via LIKE
-    
-    assert len(results) == 1
-    ev = results[0]
-    assert ev.search_mode == "LIKE"
-    # Model doesn't have filename, checking path
-    assert "fallback.txt" in ev.source_path
-    assert ev.source_path == "/tmp/fallback.txt"
+# test_fts_fallback_simulation removed: SearchService no longer falls back to repo.search_artifacts logic.
 

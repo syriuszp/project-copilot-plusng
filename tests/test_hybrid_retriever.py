@@ -23,6 +23,9 @@ class MockEmbeddingService:
     def __init__(self):
         self.model_id = "test_model"
         self.provider = MockEmbeddingProvider()
+        
+    def embed_query(self, query):
+        return [0.1, 0.2, 0.3] # dummy vector
 
 @pytest.fixture
 def db_path(tmp_path):

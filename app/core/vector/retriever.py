@@ -200,8 +200,10 @@ class HybridRetriever:
                             vector_chunks.append(c)
 
             except Exception as e:
-                # If vector search fails (no index etc), ignore
-                pass 
+                # If vector search fails (no index etc), ignore but LOG
+                import logging
+                logging.getLogger(__name__).error(f"Vector search/merge failed: {e}")
+                pass
 
         # 3. Normalize Scores
         # Collect raw scores
@@ -239,6 +241,7 @@ class HybridRetriever:
                 existing.vector_score_norm = c.vector_score_norm
                 existing.score += (w_vec * c.vector_score_norm)
                 existing.match_type = 'hybrid'
+                existing.source = 'hybrid'
             else:
                 # New semantic result
                 c.score = w_vec * c.vector_score_norm
