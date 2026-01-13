@@ -22,6 +22,10 @@ class SearchService:
         if not config.get("db_path") and "paths" in config:
              db_path = config.get("paths", {}).get("db_path") or db_path
              index_dir = config.get("paths", {}).get("index") or index_dir
+             
+        # Prioritize Repo's DB path if available (crucial for tests)
+        if hasattr(self.repo, 'db_path') and self.repo.db_path:
+            db_path = self.repo.db_path
         
         self.emb_repo = EmbeddingRepository(db_path)
         self.emb_service = EmbeddingService(self.emb_repo, config)

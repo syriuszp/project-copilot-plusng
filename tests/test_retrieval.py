@@ -120,6 +120,7 @@ def test_only_active_chunks_are_retrieved(env):
     emb_svc = MagicMock()
     emb_svc.model_id = "m1"
     emb_svc.provider.embed_text.return_value = [[1.0, 0.0]] 
+    emb_svc.embed_query.return_value = [1.0, 0.0]
     
     retriever = HybridRetriever(env["db"], vstore, emb_svc)
     

@@ -250,7 +250,7 @@ class HybridRetriever:
             else:
                 # New semantic result
                 c.score = w_vec * c.vector_score_norm
-                c.source = "semantic"
+                c.source = "vector"
                 chunk_map[c.chunk_id] = c
 
         # Convert back to list
