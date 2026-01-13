@@ -1,0 +1,11 @@
+features:
+  search_enabled: true
+  fts_enabled: true
+  # SAFE DEFAULT: Semantic disabled until explicitly opted-in + vector DB ready
+  semantic_enabled: false
+
+embeddings:
+  provider: gemini
+  model: models/embedding-001
+  # SAFE DEFAULT: Fail indexing if embeddings fail (don't allow silent partial index)
+  fail_closed: true

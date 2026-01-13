@@ -100,3 +100,31 @@ Required environment variables:
 - `PROJECT_COPILOT_ENV`: set to `PROD`.
 
 Search capabilities are fully config-driven. No repo dependencies.
+
+## Epic 4: Semantic Core (Embeddings & Secrets)
+
+### 1. Secrets Management
+API Keys (e.g., `GEMINI_API_KEY`) **MUST NOT** be committed to the repo.
+
+**Resolution Order**:
+1.  **Environment Variable**: `GEMINI_API_KEY` (Preferred for Prod/CI).
+2.  **Local Secrets File**: `config/secrets.local.json` (Dev only, gitignored).
+
+**Setup (Dev)**:
+Create `config/secrets.local.json`:
+```json
+{
+  "GEMINI_API_KEY": "AIza..."
+}
+```
+
+### 2. Embeddings Provider
+Configured in `config.yaml`:
+```yaml
+embeddings:
+  provider: gemini  # Default
+  fail_closed: true # Hard fail if key missing
+```
+
+**Fallback**:
+If `provider: local` is set, or `fail_closed: false` + key missing, system falls back to CPU-based stubs (no API usage).

@@ -1,17 +1,8 @@
 
-import pytest
-import logging
+import sys
+from pathlib import Path
 
-@pytest.fixture(autouse=True)
-def shutdown_logging_teardown():
-    """
-    Force shutdown of logging handlers to release file locks on Windows.
-    This prevents PermissionError during tmp_path cleanup.
-    """
-    yield
-    # Aggressively close handlers
-    root = logging.getLogger()
-    for h in root.handlers[:]:
-        h.close()
-        root.removeHandler(h)
-    logging.shutdown()
+# Fix PYTHONPATH for CI/tests to find 'app' package
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))

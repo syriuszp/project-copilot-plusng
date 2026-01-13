@@ -166,7 +166,12 @@ def load_config() -> Dict[str, Any]:
 
             config_status["data"] = loaded_config
             
-            # --- 4. Resolve DB Path ---
+            # [FINAL-P1] SAFE DEFAULT Guard
+            if env == "PROD":
+                feat = loaded_config.get("features", {})
+                sem = feat.get("semantic_enabled", False)
+                if sem:
+                    logger.warning("🚨 PROD WARNING: Semantic Search is ENABLED. Ensure Vector DB is provisioned and costs monitored.")
             raw_db_path = None
             if "database" in loaded_config and "path" in loaded_config["database"]:
                  raw_db_path = loaded_config["database"]["path"]
