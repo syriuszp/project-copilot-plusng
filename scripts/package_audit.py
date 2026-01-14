@@ -3,10 +3,8 @@ import os
 import glob
 
 def package_repo():
-    out_zip = "releases/v4.2_production_ready.zip"
-    if not os.path.exists("releases"):
-        os.makedirs("releases")
-        
+    out_zip = "audit_package_v0.4.2.zip"
+    
     print(f"Creating {out_zip}...")
     
     # Files/Dirs to include
@@ -16,12 +14,13 @@ def package_repo():
         "config",
         "db",
         "scripts",
+        "docs",
         "pyproject.toml",
         "pytest.ini",
         "README.md",
         "MANIFEST.in",
-        "manual_init.py",
-        "data/project_copilot.db"
+        "data/project_copilot.db",
+        "tools" # Include binaries for easy auditor setup
     ]
     
     with zipfile.ZipFile(out_zip, 'w', zipfile.ZIP_DEFLATED) as zf:

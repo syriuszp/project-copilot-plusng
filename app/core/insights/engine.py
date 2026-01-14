@@ -10,7 +10,10 @@ class InsightEngine:
         self.db_path = db_path
         self.repository = repository
 
-    def _get_active_chunks(self, index_run_id: str):
+    def _get_active_chunks(self):
+        # Audit Change: Global active evidence contract.
+        # Process ALL active chunks, effectively regenerating the insights view 
+        # based on current global state, not just this run's delta.
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
@@ -18,10 +21,9 @@ class InsightEngine:
                 SELECT chunk_id, content_text, artifact_id, hash
                 FROM chunks 
                 WHERE is_active = 1 
-                  AND index_run_id = ? 
                   AND content_text IS NOT NULL 
                   AND length(trim(content_text)) > 0
-            """, (index_run_id,))
+            """)
             rows = cursor.fetchall()
             return rows
         finally:
@@ -31,7 +33,7 @@ class InsightEngine:
         """
         Scans active chunks for this run and generates insights.
         """
-        rows = self._get_active_chunks(index_run_id)
+        rows = self._get_active_chunks()
         
         # Heuristics
         # 1. Unknowns: "TBD", "TODO", "Unknown", "Missing"
@@ -51,31 +53,11 @@ class InsightEngine:
             chunk_hash = row['hash']
             
             for i_type, pattern in patterns.items():
-                match = re.search(pattern, content, re.IGNORECASE)
-                if match:
+                # Change: Use finditer to find ALL occurences in chunk
+                for match in re.finditer(pattern, content, re.IGNORECASE):
                     # Fingerprint = hash(type + normalized_statement)
-                    # We want to group same findings across files/chunks.
-                    # Statement contains the snippet, which might vary slightly?
-                    # Auditor says "Ten sam marker/statement".
-                    # If we include snippet in statement, it makes it unique per chunk if snippet differs.
-                    # Let's use the Pattern + The Text found (normalized) to group.
-                    # e.g. "TODO: Fix this" found in file A and file B.
-                    # We need to extract the "value" of the marker if possible, or key off the HIT.
+                    # We capture the LINE context to distinguish different TBDs.
                     
-                    # For MVP, let's use the normalized marker + a bit of content?
-                    # The instruction says: "fingerprint = hash(type|normalized_statement)"
-                    # "Statement" usually means the user description e.g. "TBD: Implement Login".
-                    # My current regex only extracts the marker keyword (e.g. "TBD").
-                    # If I only fingerprint "TBD", then ALL TBDs merge into ONE insight.
-                    # That might be too aggressive if they vary effectively.
-                    # But Auditor says: "Ten sam logiczny TBD / DEPENDENCY pojawia się wielokrotnie".
-                    # Let's try to capture the LINE or surrounding text to distinguish different TBDs,
-                    # but same TBD in re-index (same file, same content) should match.
-                    # Wait, if we move the file, the chunk hash changes? No, chunk hash is content based.
-                    # P2.2 Requirement: "Fingerprint = hash(type|normalized_statement)".
-                    # Let's grab the LINE content as "statement" for better uniqueness than just "TBD".
-                    
-                    # Improve extraction slightly to get line context
                     start = match.start()
                     line_start = content.rfind('\n', 0, start) + 1
                     line_end = content.find('\n', start)
@@ -99,7 +81,6 @@ class InsightEngine:
                     
                     # Guard P2.1
                     if not chunk_id:
-                        # Should not happen in this loop, but good practice
                         continue
                         
                     insight = Insight(

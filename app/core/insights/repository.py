@@ -92,10 +92,13 @@ class InsightRepository:
         finally:
             conn.close()
 
-    def list_insights(self, types: Optional[List[str]] = None, limit: int = 200, only_latest_run: bool = True) -> List[dict]:
+    def list_insights(self, types: Optional[List[str]] = None, limit: int = 200, 
+                    require_active_evidence: bool = True, only_latest_run: bool = False,
+                    status: Optional[str] = None) -> List[dict]:
         """
-        List insights, optionally filtered by type. Returns dictionaries for UI.
-        P2: Defaults to only_latest_run = True.
+        List insights.
+        Default: Returns only insights linked to at least one ACTIVE chunk.
+        Legacy: 'only_latest_run' is deprecated, maintained for strict debug only.
         """
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -103,24 +106,40 @@ class InsightRepository:
             latest_run_id = None
             if only_latest_run:
                 latest_run_id = self.get_latest_run_id()
-
+            
+            # Base query Selects distinct insights
             query = """
-                SELECT insight_id, index_run_id, type, status, statement, confidence, created_at, updated_at
-                FROM insights
-                WHERE 1=1
+                SELECT DISTINCT i.insight_id, i.index_run_id, i.type, i.status, i.statement, i.confidence, i.created_at, i.updated_at
+                FROM insights i
             """
+            
             params = []
-
+            conditions = ["1=1"]
+            
+            if require_active_evidence:
+                query += """
+                    JOIN insight_evidence ie ON ie.insight_id = i.insight_id
+                    JOIN chunks c ON c.chunk_id = ie.chunk_id
+                """
+                conditions.append("c.is_active = 1")
+                
             if types:
                 placeholders = ",".join(["?"] * len(types))
-                query += f" AND type IN ({placeholders})"
+                conditions.append(f"i.type IN ({placeholders})")
                 params.extend(types)
+
+            if status:
+                conditions.append("i.status = ?")
+                params.append(status)
             
             if only_latest_run and latest_run_id:
-                query += " AND index_run_id = ?"
+                conditions.append("i.index_run_id = ?")
                 params.append(latest_run_id)
+
+            query += " WHERE " + " AND ".join(conditions)
             
-            query += " ORDER BY created_at DESC LIMIT ?"
+            # Sort by update time to show freshest information first
+            query += " ORDER BY i.updated_at DESC, i.insight_id DESC LIMIT ?"
             params.append(limit)
             
             cursor.execute(query, params)
@@ -130,7 +149,7 @@ class InsightRepository:
                 {
                     "insight_id": r[0], "index_run_id": r[1], "type": r[2], "status": r[3],
                     "statement": r[4], "confidence": r[5], "created_at": r[6], "updated_at": r[7],
-                    "is_latest": (r[1] == latest_run_id) if latest_run_id else False
+                    "is_active": True # Implicit if filtered by active, but useful for UI
                 }
                 for r in rows
             ]

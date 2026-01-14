@@ -19,7 +19,8 @@ def render(app_state: AppState):
     # --- Data Fetching ---
     try:
         repo = InsightRepository(db_path)
-        rows = repo.list_insights(types=['decision', 'dependency'])
+        # Audit Fix: Use active evidence contract filters AND status filter for accurate count
+        rows = repo.list_insights(types=['decision', 'dependency'], require_active_evidence=True, only_latest_run=False, status='open')
     except Exception as e:
         st.error(f"Failed to fetch insights: {e}")
         return
@@ -45,13 +46,6 @@ def render(app_state: AppState):
         # Color coding
         msg = f"**[{i_type}]** {r['statement']}"
         icon = "🔗" if i_type == "DEPENDENCY" else "🤔"
-        
-        # Filter out closed if needed, but repo query handled it?
-        # Current repo query in list_insights does NOT filter status='open' by default 
-        # unless we add that param or filter here. 
-        # Let's filter here for MVP to match "Open Loops" name
-        if status != 'open':
-            continue
         
         with st.expander(f"{icon} {i_type}: {r['statement'][:80]}...", expanded=True):
             st.markdown(r['statement'])
