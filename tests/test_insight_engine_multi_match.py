@@ -7,9 +7,16 @@ from app.core.insights.repository import InsightRepository
 def repo(tmp_path):
     db_path = tmp_path / "test_insights.db"
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE chunks (chunk_id TEXT, artifact_id TEXT, is_active INTEGER, content_text TEXT, hash TEXT, index_run_id TEXT)")
-    conn.execute("CREATE TABLE insights (insight_id TEXT PRIMARY KEY, index_run_id TEXT, type TEXT, statement TEXT, status TEXT, confidence REAL, updated_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, insight_fingerprint TEXT)")
-    conn.execute("CREATE TABLE insight_evidence (insight_id TEXT, chunk_id TEXT, PRIMARY KEY(insight_id, chunk_id))")
+    conn.execute("CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, artifact_id TEXT, is_active INTEGER, content_text TEXT, hash TEXT, index_run_id TEXT, position_index INTEGER, section TEXT)")
+    conn.execute("CREATE TABLE insight_evidence (insight_id TEXT, chunk_id TEXT)")
+    conn.execute("""
+        CREATE TABLE insights (
+            insight_id TEXT PRIMARY KEY, index_run_id TEXT, type TEXT, statement TEXT, status TEXT, confidence REAL, updated_at TIMESTAMP, created_at TIMESTAMP,
+            insight_key TEXT, status_origin TEXT, detection_rule_id TEXT, first_detected_at TIMESTAMP, last_confirmed_at TIMESTAMP, superseded_by_insight_id TEXT, status_comment TEXT, previous_status TEXT, section_hint TEXT, detection_pattern TEXT, evidence_chunk_ids TEXT,
+            insight_fingerprint TEXT, status_updated_at TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE TABLE insight_status_history (id INTEGER PRIMARY KEY, insight_id TEXT, from_status TEXT, to_status TEXT, origin TEXT, changed_at TIMESTAMP, run_id TEXT, comment TEXT)")
     conn.close()
     return InsightRepository(str(db_path))
 
@@ -29,8 +36,8 @@ def test_engine_extracts_multiple_markers_from_single_chunk(repo):
     TODO: Third item.
     """
     conn.execute("""
-        INSERT INTO chunks (chunk_id, artifact_id, is_active, content_text, index_run_id, hash) 
-        VALUES ('c1', 'a1', 1, ?, 'r1', 'h1')
+        INSERT INTO chunks (chunk_id, artifact_id, is_active, content_text, index_run_id, hash, position_index) 
+        VALUES ('c1', 'a1', 1, ?, 'r1', 'h1', 0)
     """, (chunk_text,))
     conn.commit()
     conn.close()

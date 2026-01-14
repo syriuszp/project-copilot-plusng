@@ -21,9 +21,12 @@ class InsightService:
         Priority: Location (Artifact + Rule + Position) > Content (Artifact + Rule + Normalized Statement).
         """
         if position_index is not None:
-             # Location-based
+             # Location-based + Content Disambiguation (for multiple insights per chunk)
              loc_hash = hashlib.sha1(str(position_index).encode('utf-8')).hexdigest()
-             raw = f"{artifact_id}|{rule_id}|{loc_hash}"
+             # We must include statement (normalized) or offset to distinguish multiple TODOs in same chunk.
+             # Using normalized statement provides some resilience to minor formatting while ensuring uniqueness.
+             norm_stmt = " ".join(statement.split()).lower()
+             raw = f"{artifact_id}|{rule_id}|{loc_hash}|{norm_stmt}"
              return hashlib.sha1(raw.encode('utf-8')).hexdigest()
         else:
              # Content-based Fallback
