@@ -13,11 +13,12 @@ def render(app_state: AppState):
 
     repo = InsightRepository(db_path)
 
-    rows = repo.list_insights(types=["unknown"], limit=200)
-    st.metric("Unknowns", len(rows))
+    # Audit Fix: Use active evidence contract filters
+    rows = repo.list_insights(types=["unknown"], limit=200, require_active_evidence=True, only_latest_run=False)
+    st.metric("Active Unknowns", len(rows))
 
     if not rows:
-        st.info("No unknowns detected yet. Add a document with markers like TBD/TODO/UNKNOWN and re-index.")
+        st.info("No active unknowns detected. Add a document with markers like TBD/TODO/UNKNOWN and re-index.")
         return
 
     for r in rows:
@@ -26,11 +27,8 @@ def render(app_state: AppState):
         with st.expander(title, expanded=False):
             st.write(r["statement"])
             
-            # Badge
-            if r.get("is_latest", True): # Default true if filtered
-                st.caption(f"Run: {r.get('index_run_id')} | Confidence: {r.get('confidence')} | :white_check_mark: Latest Run")
-            else:
-                 st.caption(f"Run: {r.get('index_run_id')} | Confidence: {r.get('confidence')} | :warning: Historic")
+            # Badge - Current
+            st.caption(f"Run: {r.get('index_run_id')} | Confidence: {r.get('confidence')} | :green_heart: Active")
 
             ev = repo.get_evidence(insight_id, limit=20)
             if not ev:

@@ -1,4 +1,10 @@
-import faiss
+try:
+    import faiss
+except ImportError:
+    faiss = None
+    import logging
+    logging.getLogger(__name__).warning("FAISS not available. Vector search will fail if attempted.")
+
 import json
 import os
 import numpy as np
