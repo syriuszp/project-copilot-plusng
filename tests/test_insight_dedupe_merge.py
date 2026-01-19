@@ -90,10 +90,8 @@ def test_separate_insights_different_artifacts(db_path):
     assert len(insights) == 2, "Should have 2 separate insights for different artifacts"
     
     # Verify fingerprints differ
-    f1 = insights[0].insight_fingerprint
-    f2 = insights[1].insight_fingerprint
-    assert f1 != f2, "Fingerprints must differ across artifacts"
-    
-    # Verify P1: ID should be the fingerprint
-    assert insights[0].insight_id == f1
-    assert insights[1].insight_id == f2
+    f1 = insights[0].insight_key
+    f2 = insights[1].insight_key
+    assert f1 != f2, "Insight keys must differ across artifacts"
+    assert f1 is not None
+    assert f2 is not None

@@ -17,6 +17,7 @@ from app.core.embeddings.service import EmbeddingService
 from app.core.vector.faiss_index import VectorStore
 from app.core.insights.repository import InsightRepository
 from app.core.insights.engine import InsightEngine
+from app.core.insights.quality_service import QualityService
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class IndexingService:
         
         self.insight_repo = InsightRepository(db_path)
         self.insight_engine = InsightEngine(db_path, self.insight_repo)
+        self.quality_service = QualityService(db_path)
 
     def index_file(self, path: str, run_id: str = "legacy") -> str:
         """
@@ -378,6 +380,9 @@ class IndexingService:
             
             # Insights
             self.insight_engine.run(run_id)
+            
+            # Quality & Telemetry
+            self.quality_service.record_run_metrics(run_id)
         except Exception as e:
             logger.error(f"Semantic Pipeline Finalize Failed: {e}")
 
@@ -392,4 +397,3 @@ class IndexingService:
         except Exception as e:
             logger.warning(f"Failed to calc SHA256 for {path}: {e}")
             return "sha_error"
-

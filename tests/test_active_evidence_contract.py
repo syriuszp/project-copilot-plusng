@@ -5,15 +5,20 @@ from app.core.insights.models import Insight
 
 @pytest.fixture
 def repo(tmp_path):
-    # Setup minimalistic DB with required schema
-    db_path = tmp_path / "test_insights.db"
+    # File DB for correct connection sharing
+    db_path = tmp_path / "test_active.db"
     conn = sqlite3.connect(db_path)
-    
-    # Minimal Schema for chunks, insights, insight_evidence
-    conn.execute("CREATE TABLE chunks (chunk_id TEXT, artifact_id TEXT, is_active INTEGER)")
-    conn.execute("CREATE TABLE insights (insight_id TEXT PRIMARY KEY, index_run_id TEXT, type TEXT, statement TEXT, status TEXT, confidence REAL, updated_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, insight_fingerprint TEXT)")
-    conn.execute("CREATE TABLE insight_evidence (insight_id TEXT, chunk_id TEXT, PRIMARY KEY(insight_id, chunk_id))")
-    conn.close()
+    # Minimal Schema for this contract test
+    conn.execute("CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, artifact_id TEXT, is_active INTEGER, content_text TEXT, hash TEXT, index_run_id TEXT, position_index INTEGER, section TEXT)")
+    conn.execute("CREATE TABLE insight_evidence (insight_id TEXT, chunk_id TEXT)")
+    conn.execute("""
+        CREATE TABLE insights (
+            insight_id TEXT PRIMARY KEY, index_run_id TEXT, type TEXT, statement TEXT, status TEXT, confidence REAL, updated_at TIMESTAMP, created_at TIMESTAMP,
+            insight_key TEXT, status_origin TEXT, detection_rule_id TEXT, first_detected_at TIMESTAMP, last_confirmed_at TIMESTAMP, superseded_by_insight_id TEXT, status_comment TEXT, previous_status TEXT, section_hint TEXT, detection_pattern TEXT,
+            insight_fingerprint TEXT, status_updated_at TIMESTAMP
+        )
+    """)
+    conn.commit()
     return InsightRepository(str(db_path))
 
 def test_current_insights_show_multiple_artifacts_even_if_runs_different(repo):
