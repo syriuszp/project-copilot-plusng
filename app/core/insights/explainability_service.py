@@ -21,7 +21,10 @@ class ExplainabilityService:
              rationale += f" Pattern matched: '{insight.detection_pattern}'."
              
         if insight.status == 'superseded':
-             rationale += f" This insight was superseded by {insight.superseded_by_insight_id}."
+             if insight.superseded_by_insight_id:
+                 rationale += f" This insight was superseded by {insight.superseded_by_insight_id}."
+             else:
+                 rationale += " This insight was superseded (target not specified)."
              
         # Related Sections
         related = []
@@ -33,19 +36,72 @@ class ExplainabilityService:
         if insight.status_origin == 'manual':
              justification += " Status manually overridden."
 
-        # Status Logic
+        # Status Logic (Deterministic from History)
         status_logic = f"Status is {insight.status}."
-        if insight.status == 'archived':
-             date_str = insight.status_updated_at or insight.last_confirmed_at or "unknown date"
-             status_logic = f"Archived because missing evidence in scan(s) since {date_str}."
-        elif insight.status_origin == 'manual':
-             status_logic = "Status set manually by user."
-        elif insight.status == 'superseded':
-             status_logic = f"Superseded by {insight.superseded_by_insight_id}."
-        elif insight.status == 'open':
-             status_logic = f"Active since {insight.first_detected_at}."
-             if insight.previous_status:
-                  status_logic += f" Restored from {insight.previous_status}."
+        
+        # Check history for precise logic
+        last_manual_change = None
+
+        # Check history for precise logic & manual actions
+        history = self.repo.get_status_history(insight_id)
+        
+        # Epic 5: Find last manual change for UI
+        for event in history:
+            if event['origin'] == 'manual':
+                last_manual_change = {
+                    'from_status': event['from_status'],
+                    'to_status': event['to_status'],
+                    'origin': event['origin'],
+                    'changed_at': event['changed_at'],
+                    'comment': event.get('comment')
+                }
+                break
+
+        last_event = history[0] if history else None
+        
+        if insight.status == 'superseded':
+             target = insight.superseded_by_insight_id
+             # Fallback to manual comment if available
+             comment = last_manual_change['comment'] if last_manual_change and last_manual_change['to_status'] == 'superseded' else ""
+             
+             if target:
+                 # Fetch target to get title
+                 target_insight = self.repo.get_insight_by_id(target)
+                 target_desc = f"{target[:8]}... ({target_insight.statement[:50]}...)" if target_insight else target
+                 status_logic = f"Superseded by insight {target_desc}."
+             else:
+                 status_logic = "Superseded (target not set)."
+             
+             if comment:
+                 status_logic += f" Reason: {comment}"
+        
+        elif last_event:
+             from_s = last_event['from_status']
+             to_s = last_event['to_status']
+             origin = last_event['origin']
+             changed_at = last_event['changed_at']
+             comment = last_event.get('comment') or ""
+             
+             if to_s == 'resolved' and origin == 'manual':
+                 status_logic = f"Resolved manually on {changed_at}. Comment: {comment}"
+             
+             elif to_s == 'archived' and origin == 'system':
+                  conf_at = insight.last_confirmed_at or changed_at
+                  status_logic = f"Archived because evidence missing since {conf_at}."
+             
+             elif to_s == 'resolved' and from_s == 'archived':
+                  status_logic = f"Restored to previous_status=resolved on {changed_at} (evidence reappeared)."
+                  
+             elif to_s == 'open' and from_s == 'archived':
+                  status_logic = f"Restored to previous_status=open on {changed_at} (evidence reappeared)."
+             
+             elif to_s == 'open' and origin == 'manual':
+                  status_logic = f"Re-opened manually on {changed_at}. Comment: {comment}"
+                  
+        # Epic 5: P1 Consistency check - if resolved manually, ensure status logic reflects it even if history is weird
+        if insight.status == 'resolved' and insight.status_origin == 'manual' and "Resolved manually" not in status_logic:
+             # Fallback if history missing but current state is manual resolved
+             status_logic = f"Resolved manually. (History unavailable)"
 
         return Explainability(
             insight_id=insight.insight_id,
@@ -58,5 +114,7 @@ class ExplainabilityService:
             status_updated_at=insight.status_updated_at,
             status=insight.status,
             status_origin=insight.status_origin,
-            status_logic=status_logic
+
+            status_logic=status_logic,
+            last_manual_change=last_manual_change
         )

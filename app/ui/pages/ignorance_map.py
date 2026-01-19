@@ -13,6 +13,9 @@ def render(app_state: AppState):
 
     repo = InsightRepository(db_path)
 
+    from app.core.insights.explainability_service import ExplainabilityService
+    explain_service = ExplainabilityService(repo)
+
     # Audit Fix: Use active evidence contract filters
     rows = repo.list_insights(types=["unknown"], limit=200, require_active_evidence=True, only_latest_run=False)
     st.metric("Active Unknowns", len(rows))
@@ -29,6 +32,22 @@ def render(app_state: AppState):
             
             # Badge - Current
             st.caption(f"Run: {r.get('index_run_id')} | Confidence: {r.get('confidence')} | :green_heart: Active")
+
+            # Explainability Panel (Shared Logic with open_loops.py)
+            with st.expander("Explain Why"):
+                explanation = explain_service.generate_explanation(insight_id)
+                if explanation:
+                    if explanation.last_manual_change:
+                         mc = explanation.last_manual_change
+                         st.info(f"📝 **Manual Decision**\n\n"
+                                 f"Changed from `{mc['from_status'].upper()}` → `{mc['to_status'].upper()}` on {mc['changed_at']}\n\n"
+                                 f"**Reason:** {mc['comment']}")
+                    
+                    st.markdown(f"**Rationale:** {explanation.rationale}")
+                    if explanation.status_logic:
+                         st.caption(f"ℹ️ {explanation.status_logic}")
+                    
+                    st.caption(f"Confidence: {explanation.confidence_justification}")
 
             ev = repo.get_evidence(insight_id, limit=20)
             if not ev:

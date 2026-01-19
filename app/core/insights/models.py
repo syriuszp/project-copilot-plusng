@@ -45,3 +45,6 @@ class Explainability:
     status: str
     status_origin: str
     status_logic: str # Deterministic explanation of status state
+    
+    # Epic 5: Manual Auditing
+    last_manual_change: Optional[dict] = None # {from, to, comment, changed_at, origin}
