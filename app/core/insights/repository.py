@@ -360,24 +360,31 @@ class InsightRepository:
         finally:
             conn.close()
 
-    def get_evidence(self, insight_id: str, limit: int = 20) -> List[dict]:
+    def get_evidence(self, insight_id: str, limit: int = 20, active_only: bool = True) -> List[dict]:
         """
         Get detailed evidence (content + location) for an insight.
         """
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            query = """
                 SELECT
                     c.chunk_id, c.content_text, c.page, c.slide, c.section,
-                    a.filename, a.path
+                    a.filename, a.path, c.artifact_id
                 FROM insight_evidence ie
                 JOIN chunks c ON c.chunk_id = ie.chunk_id
                 JOIN artifacts a ON a.id = c.artifact_id
                 WHERE ie.insight_id = ?
-                  AND c.is_active = 1
-                LIMIT ?
-            """, (insight_id, limit))
+            """
+            params = [insight_id]
+            
+            if active_only:
+                query += " AND c.is_active = 1"
+                
+            query += " LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, params)
             rows = cursor.fetchall()
             return [
                 {
@@ -388,8 +395,42 @@ class InsightRepository:
                     "section": r[4],
                     "filename": r[5],
                     "path": r[6],
+                    "artifact_id": r[7], 
                 }
                 for r in rows
             ]
+        finally:
+            conn.close()
+
+    def get_status_history(self, insight_id: str) -> List[dict]:
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        try:
+            cur = conn.execute("""
+                SELECT * FROM insight_status_history 
+                WHERE insight_id = ? 
+                ORDER BY changed_at DESC
+            """, (insight_id,))
+            return [dict(row) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_latest_quality_metrics(self) -> Optional[dict]:
+        """
+        Fetches the most recent quality metrics entry.
+        """
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        try:
+            # Check if table exists first (in case of old DBs)
+            exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='quality_metrics'").fetchone()
+            if not exists:
+                return None
+                
+            cur = conn.execute("SELECT * FROM quality_metrics ORDER BY recorded_at DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+        except Exception:
+            return None
         finally:
             conn.close()
